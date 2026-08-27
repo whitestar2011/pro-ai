@@ -1,12 +1,15 @@
 from flask import Flask, request, session, redirect
+from dotenv import load_dotenv
 import json, os, datetime, time, random, requests, re, google.generativeai as genai
+
+load_dotenv() # Loads your.env file
 
 app = Flask(__name__)
 app.secret_key = "pro_ai_secret_key_2026"
 
-# ===== CONFIG =====
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY" # Get free from https://aistudio.google.com/app/apikey
-VIRUSTOTAL_API_KEY = "YOUR_VIRUSTOTAL_KEY" # Get free from virustotal.com
+# ===== CONFIG - NOW READS FROM.env =====
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
@@ -130,7 +133,7 @@ def chat():
                     response = model.generate_content(user_msg)
                     reply = response.text + safety_warning
                 except:
-                    reply = "I'm having trouble connecting to AI right now." + safety_warning
+                    reply = "I'm having trouble connecting to AI. Check your GEMINI_API_KEY in.env" + safety_warning
 
                 ai_msg = {"sender": "ai", "msg": reply, "time": get_time(), "voice": True}
                 if incognito: ai_msg["incognito"] = True
@@ -152,31 +155,31 @@ def chat():
     <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
     <style>
     body{{background:#111b21;color:white;margin:0;font-family:Arial}}
-  .header{{background:#202c33;padding:10px 16px;height:59px;display:flex;justify-content:space-between;align-items:center;position:fixed;width:100%;top:0;box-sizing:border-box}}
-  .header-logo{{width:40px;height:40px;border-radius:50%;border:2px solid #FFD700}}
-  .menu-btn{{background:none;border:none;color:white;font-size:24px}}
-  .dropdown{{display:none;position:absolute;right:10px;top:55px;background:#2a3942;min-width:240px;border-radius:8px;z-index:10}}
-  .profile-section{{padding:16px;border-bottom:1px solid #3a4a52}}
-  .profile-section input{{width:100%;padding:8px;margin:6px 0;background:#111b21;border:1px solid #555;border-radius:6px;color:white}}
-  .switch{{position:relative;display:inline-block;width:50px;height:24px}}
-  .switch input{{opacity:0}}.slider{{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#555;border-radius:24px}}
+ .header{{background:#202c33;padding:10px 16px;height:59px;display:flex;justify-content:space-between;align-items:center;position:fixed;width:100%;top:0;box-sizing:border-box}}
+ .header-logo{{width:40px;height:40px;border-radius:50%;border:2px solid #FFD700}}
+ .menu-btn{{background:none;border:none;color:white;font-size:24px}}
+ .dropdown{{display:none;position:absolute;right:10px;top:55px;background:#2a3942;min-width:240px;border-radius:8px;z-index:10}}
+ .profile-section{{padding:16px;border-bottom:1px solid #3a4a52}}
+ .profile-section input{{width:100%;padding:8px;margin:6px 0;background:#111b21;border:1px solid #555;border-radius:6px;color:white}}
+ .switch{{position:relative;display:inline-block;width:50px;height:24px}}
+ .switch input{{opacity:0}}.slider{{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#555;border-radius:24px}}
     input:checked +.slider{{background-color:#7B2FFF}}
-  .chat{{padding:90px 10px 80px 10px;height:100vh;overflow-y:scroll}}
-  .bubble{{display:flex;gap:8px;margin:6px 0;max-width:75%;clear:both;align-items:flex-end}}
-  .you{{float:right}}.ai{{float:left}}
-  .user-avatar{{width:32px;height:32px;border-radius:50%;background:#7B2FFF}}
-  .ai-avatar{{width:28px;height:28px;border-radius:50%;border:1.5px solid #FFD700}}
-  .bubble > div{{padding:6px 10px;border-radius:7.5px;background:#202c33}}
-  .you > div{{background:#7B2FFF}}
-  .meta{{font-size:11px;color:#8696a0;text-align:right;margin-top:4px}}
-  .input{{position:fixed;bottom:0;width:100%;background:#202c33;padding:8px 16px;display:flex;gap:8px;box-sizing:border-box}}
-  .input input{{flex:1;padding:12px 15px;border-radius:25px;border:none;background:#2a3942;color:white}}
-  .send-btn{{background:#7B2FFF;border:none;border-radius:50%;width:48px;height:48px;color:white}}
-  .mic-btn{{background:#FF5722;border:none;border-radius:50%;width:48px;height:48px;color:white}}
-  .mic-btn.recording{{background:red;animation:pulse 1s infinite}}
+ .chat{{padding:90px 10px 80px 10px;height:100vh;overflow-y:scroll}}
+ .bubble{{display:flex;gap:8px;margin:6px 0;max-width:75%;clear:both;align-items:flex-end}}
+ .you{{float:right}}.ai{{float:left}}
+ .user-avatar{{width:32px;height:32px;border-radius:50%;background:#7B2FFF}}
+ .ai-avatar{{width:28px;height:28px;border-radius:50%;border:1.5px solid #FFD700}}
+ .bubble > div{{padding:6px 10px;border-radius:7.5px;background:#202c33}}
+ .you > div{{background:#7B2FFF}}
+ .meta{{font-size:11px;color:#8696a0;text-align:right;margin-top:4px}}
+ .input{{position:fixed;bottom:0;width:100%;background:#202c33;padding:8px 16px;display:flex;gap:8px;box-sizing:border-box}}
+ .input input{{flex:1;padding:12px 15px;border-radius:25px;border:none;background:#2a3942;color:white}}
+ .send-btn{{background:#7B2FFF;border:none;border-radius:50%;width:48px;height:48px;color:white}}
+ .mic-btn{{background:#FF5722;border:none;border-radius:50%;width:48px;height:48px;color:white}}
+ .mic-btn.recording{{background:red;animation:pulse 1s infinite}}
    @keyframes pulse {{0%{{transform:scale(1)}}50%{{transform:scale(1.1)}}100%{{transform:scale(1)}}}}
-  .security-page{{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#111b21;color:white;z-index:99;overflow-y:scroll}}
-  .security-header{{background:#202c33;padding:16px;display:flex;align-items:center;gap:16px}}
+ .security-page{{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#111b21;color:white;z-index:99;overflow-y:scroll}}
+ .security-header{{background:#202c33;padding:16px;display:flex;align-items:center;gap:16px}}
     </style></head><body>
     <div class="header">
         <img src="/static/logo.png" class="header-logo" onerror="this.style.display='none'">
@@ -224,45 +227,17 @@ def chat():
     </form>
 
     <script>
-    // VOICE TO TEXT
     let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    recognition.lang = 'en-US';
-    recognition.continuous = false;
-    let micBtn = document.getElementById('micBtn');
-    let msgInput = document.getElementById('msgInput');
-
-    micBtn.onmousedown = micBtn.ontouchstart = () => {{
-        micBtn.classList.add('recording');
-        recognition.start();
-    }}
-    micBtn.onmouseup = micBtn.ontouchend = () => {{
-        micBtn.classList.remove('recording');
-        recognition.stop();
-    }}
-
-    recognition.onresult = e => {{
-        msgInput.value = e.results[0][0].transcript;
-        document.getElementById('msgForm').submit();
-    }}
-
-    // TEXT TO SPEECH
-    function speak(text) {{
-        let utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 1;
-        utterance.pitch = 1;
-        speechSynthesis.speak(utterance);
-    }}
-
-    // WAKE WORD
+    recognition.lang = 'en-US'; recognition.continuous = false;
+    let micBtn = document.getElementById('micBtn'); let msgInput = document.getElementById('msgInput');
+    micBtn.onmousedown = micBtn.ontouchstart = () => {{micBtn.classList.add('recording'); recognition.start();}}
+    micBtn.onmouseup = micBtn.ontouchend = () => {{micBtn.classList.remove('recording'); recognition.stop();}}
+    recognition.onresult = e => {{msgInput.value = e.results[0][0].transcript; document.getElementById('msgForm').submit();}}
+    function speak(text) {{let utterance = new SpeechSynthesisUtterance(text); speechSynthesis.speak(utterance);}}
     let wakeRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     wakeRecognition.continuous = true;
-    wakeRecognition.onresult = e => {{
-        let txt = e.results[e.results.length-1][0].transcript.toLowerCase();
-        if(txt.includes('hey professor')) msgInput.focus();
-        if(txt.trim() === 'bye') window.close();
-    }}
+    wakeRecognition.onresult = e => {{let txt = e.results[e.results.length-1][0].transcript.toLowerCase(); if(txt.includes('hey professor')) msgInput.focus(); if(txt.trim() === 'bye') window.close();}}
     wakeRecognition.start();
-
     function toggleMenu(){{document.getElementById('menu').style.display = document.getElementById('menu').style.display === 'block'? 'none' : 'block'}}
     function showFeatures(){{document.getElementById('featuresPage').style.display='block';document.getElementById('menu').style.display='none'}}
     function closeFeatures(){{document.getElementById('featuresPage').style.display='none'}}
