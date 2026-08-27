@@ -7,7 +7,7 @@ load_dotenv() # Loads your.env file
 app = Flask(__name__)
 app.secret_key = "pro_ai_secret_key_2026"
 
-# ===== CONFIG - NOW READS FROM.env =====
+# ===== CONFIG =====
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
@@ -59,20 +59,26 @@ def index():
 @app.route("/welcome")
 def welcome(): return render_welcome()
 
-@app.route("/auth/<method>")
+@app.route("/auth/<method>", methods=["GET", "POST"])
 def auth(method):
-    code = "pro-" + "".join([str(random.randint(0,9)) for _ in range(6)])
-    session["auth_code"] = code
-    session["auth_method"] = method
-    print(f"SEND CODE {code} via {method}")
-    return render_code_page()
+    if request.method == "POST":
+        contact = request.form.get("contact") # phone or email
+        session["contact"] = contact
+        
+        code = "pro-" + "".join([str(random.randint(0,9)) for _ in range(6)])
+        session["auth_code"] = code
+        session["auth_method"] = method
+        print(f"SEND CODE {code} to {contact} via {method}")
+        return render_code_page(contact) # Step 2: Show code page
+    
+    return render_contact_page(method) # Step 1: Ask for number/email first
 
 @app.route("/verify", methods=["POST"])
 def verify():
     entered = "".join([request.form.get(f"d{i}", "") for i in range(6)])
     if entered == session.get("auth_code", "")[4:]:
         return redirect("/username")
-    return render_code_page(error=True)
+    return render_code_page(session.get("contact", ""), error=True)
 
 @app.route("/username", methods=["GET", "POST"])
 def username():
@@ -119,7 +125,6 @@ def chat():
         else:
             user_msg = request.form.get("msg")
             if user_msg:
-                # Scan links
                 safety_warning = ""
                 for link in find_links(user_msg):
                     if not scan_url(link): safety_warning = f"\n\n⚠️ Warning: Link flagged unsafe"
@@ -128,7 +133,6 @@ def chat():
                 if incognito: new_msg["incognito"] = True
                 chat_history.append(new_msg)
 
-                # REAL GEMINI AI RESPONSE
                 try:
                     response = model.generate_content(user_msg)
                     reply = response.text + safety_warning
@@ -155,31 +159,29 @@ def chat():
     <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
     <style>
     body{{background:#111b21;color:white;margin:0;font-family:Arial}}
- .header{{background:#202c33;padding:10px 16px;height:59px;display:flex;justify-content:space-between;align-items:center;position:fixed;width:100%;top:0;box-sizing:border-box}}
- .header-logo{{width:40px;height:40px;border-radius:50%;border:2px solid #FFD700}}
- .menu-btn{{background:none;border:none;color:white;font-size:24px}}
- .dropdown{{display:none;position:absolute;right:10px;top:55px;background:#2a3942;min-width:240px;border-radius:8px;z-index:10}}
- .profile-section{{padding:16px;border-bottom:1px solid #3a4a52}}
- .profile-section input{{width:100%;padding:8px;margin:6px 0;background:#111b21;border:1px solid #555;border-radius:6px;color:white}}
- .switch{{position:relative;display:inline-block;width:50px;height:24px}}
- .switch input{{opacity:0}}.slider{{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#555;border-radius:24px}}
+   .header{{background:#202c33;padding:10px 16px;height:59px;display:flex;justify-content:space-between;align-items:center;position:fixed;width:100%;top:0;box-sizing:border-box}}
+   .header-logo{{width:40px;height:40px;border-radius:50%;border:2px solid #FFD700}}
+   .menu-btn{{background:none;border:none;color:white;font-size:24px}}
+   .dropdown{{display:none;position:absolute;right:10px;top:55px;background:#2a3942;min-width:240px;border-radius:8px;z-index:10}}
+   .profile-section{{padding:16px;border-bottom:1px solid #3a4a52}}
+   .profile-section input{{width:100%;padding:8px;margin:6px 0;background:#111b21;border:1px solid #555;border-radius:6px;color:white}}
+   .switch{{position:relative;display:inline-block;width:50px;height:24px}}
+   .switch input{{opacity:0}}.slider{{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#555;border-radius:24px}}
     input:checked +.slider{{background-color:#7B2FFF}}
- .chat{{padding:90px 10px 80px 10px;height:100vh;overflow-y:scroll}}
- .bubble{{display:flex;gap:8px;margin:6px 0;max-width:75%;clear:both;align-items:flex-end}}
- .you{{float:right}}.ai{{float:left}}
- .user-avatar{{width:32px;height:32px;border-radius:50%;background:#7B2FFF}}
- .ai-avatar{{width:28px;height:28px;border-radius:50%;border:1.5px solid #FFD700}}
- .bubble > div{{padding:6px 10px;border-radius:7.5px;background:#202c33}}
- .you > div{{background:#7B2FFF}}
- .meta{{font-size:11px;color:#8696a0;text-align:right;margin-top:4px}}
- .input{{position:fixed;bottom:0;width:100%;background:#202c33;padding:8px 16px;display:flex;gap:8px;box-sizing:border-box}}
- .input input{{flex:1;padding:12px 15px;border-radius:25px;border:none;background:#2a3942;color:white}}
- .send-btn{{background:#7B2FFF;border:none;border-radius:50%;width:48px;height:48px;color:white}}
- .mic-btn{{background:#FF5722;border:none;border-radius:50%;width:48px;height:48px;color:white}}
- .mic-btn.recording{{background:red;animation:pulse 1s infinite}}
-   @keyframes pulse {{0%{{transform:scale(1)}}50%{{transform:scale(1.1)}}100%{{transform:scale(1)}}}}
- .security-page{{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#111b21;color:white;z-index:99;overflow-y:scroll}}
- .security-header{{background:#202c33;padding:16px;display:flex;align-items:center;gap:16px}}
+   .chat{{padding:90px 10px 80px 10px;height:100vh;overflow-y:scroll}}
+   .bubble{{display:flex;gap:8px;margin:6px 0;max-width:75%;clear:both;align-items:flex-end}}
+   .you{{float:right}}.ai{{float:left}}
+   .user-avatar{{width:32px;height:32px;border-radius:50%;background:#7B2FFF}}
+   .ai-avatar{{width:28px;height:28px;border-radius:50%;border:1.5px solid #FFD700}}
+   .bubble > div{{padding:6px 10px;border-radius:7.5px;background:#202c33}}
+   .you > div{{background:#7B2FFF}}
+   .meta{{font-size:11px;color:#8696a0;text-align:right;margin-top:4px}}
+   .input{{position:fixed;bottom:0;width:100%;background:#202c33;padding:8px 16px;display:flex;gap:8px;box-sizing:border-box}}
+   .input input{{flex:1;padding:12px 15px;border-radius:25px;border:none;background:#2a3942;color:white}}
+   .send-btn{{background:#7B2FFF;border:none;border-radius:50%;width:48px;height:48px;color:white}}
+   .mic-btn{{background:#FF5722;border:none;border-radius:50%;width:48px;height:48px;color:white}}
+   .mic-btn.recording{{background:red;animation:pulse 1s infinite}}
+    @keyframes pulse {{0%{{transform:scale(1)}}50%{{transform:scale(1.1)}}100%{{transform:scale(1)}}}}
     </style></head><body>
     <div class="header">
         <img src="/static/logo.png" class="header-logo" onerror="this.style.display='none'">
@@ -205,27 +207,12 @@ def chat():
             <button onclick="refresh()" style="background:none;border:none;color:white;padding:12px 16px;width:100%;text-align:left">Refresh</button>
         </div>
     </div>
-
-    <div class="security-page" id="featuresPage">
-        <div class="security-header"><button onclick="closeFeatures()" style="background:none;border:none;font-size:24px;color:white">←</button><h2>Pro AI Features</h2></div>
-        <div style="padding:16px">
-            <h3>🔒 Security</h3><p>• Toggle ON/OFF with biometrics</p><p>• Pattern, PIN, Password, Biometrics</p><p>• Edit / Change / Turn off</p><p>• Auto-lock after 5 minutes</p>
-            <h3>🕶️ Privacy</h3><p>• Incognito Mode</p><p>• Banner notification</p>
-            <h3>💬 Chat</h3><p>• Reply, Pin, Delete, Search</p><p>• Emoji picker, Blue ticks</p>
-            <h3>🛡️ Safety</h3><p>• Link scanning with VirusTotal</p><p>• In-app browser</p>
-            <h3>👤 Profile</h3><p>• Name, Username, Photo</p>
-            <h3>🎤 Voice</h3><p>• Hold mic to record</p><p>• AI replies in voice</p><p>• Wake word: "hey Professor"</p><p>• Say "bye" to close</p>
-            <h3>🤖 AI</h3><p>• Real Gemini AI Brain</p><p>• Animated logo, Timezone greetings</p>
-        </div>
-    </div>
-
     <div class="chat">{messages_html}</div>
     <form method="POST" class="input" id="msgForm">
         <input name="msg" id="msgInput" placeholder="Message">
         <button type="button" class="mic-btn" id="micBtn">🎤</button>
         <button type="submit" class="send-btn">➤</button>
     </form>
-
     <script>
     let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'en-US'; recognition.continuous = false;
@@ -234,21 +221,51 @@ def chat():
     micBtn.onmouseup = micBtn.ontouchend = () => {{micBtn.classList.remove('recording'); recognition.stop();}}
     recognition.onresult = e => {{msgInput.value = e.results[0][0].transcript; document.getElementById('msgForm').submit();}}
     function speak(text) {{let utterance = new SpeechSynthesisUtterance(text); speechSynthesis.speak(utterance);}}
-    let wakeRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    wakeRecognition.continuous = true;
-    wakeRecognition.onresult = e => {{let txt = e.results[e.results.length-1][0].transcript.toLowerCase(); if(txt.includes('hey professor')) msgInput.focus(); if(txt.trim() === 'bye') window.close();}}
-    wakeRecognition.start();
     function toggleMenu(){{document.getElementById('menu').style.display = document.getElementById('menu').style.display === 'block'? 'none' : 'block'}}
-    function showFeatures(){{document.getElementById('featuresPage').style.display='block';document.getElementById('menu').style.display='none'}}
-    function closeFeatures(){{document.getElementById('featuresPage').style.display='none'}}
+    function showFeatures(){{alert('Features Page Coming Soon')}}
     function refresh(){{location.reload()}}
     </script></body></html>
     """
 
 # ===== RENDER FUNCTIONS =====
 def render_splash(): return """<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}.logo{width:200px;height:200px;border-radius:50%;border:4px solid #FFD700}</style></head><body><img src="/static/logo.png" class="logo"><script>setTimeout(()=>{window.location="/welcome"},3000)</script></body></html>"""
-def render_welcome(): return """<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:white;margin:0}.header{background:#808080;padding:16px;text-align:center;color:white}h1{text-align:center;margin-top:40px}.btns{display:flex;justify-content:space-between;padding:20px;position:absolute;bottom:40px;width:90%}.btn{background:#7B2FFF;color:white;border:none;padding:14px 28px;border-radius:8px}</style></head><body><div class="header">Pro AI</div><h1>Welcome 🤗!</h1><div class="btns"><button class="btn" onclick="location.href='/auth/login'">Log-in</button><button class="btn" onclick="location.href='/auth/signup'">Sign-in</button></div></body></html>"""
-def render_code_page(error=False): method = session.get("auth_method", "phone"); return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{background:white;margin:0}}.header{{background:#808080;padding:16px;color:white}}.code-box{{display:flex;gap:10px;justify-content:center;margin-top:40px}}.digit{{width:50px;height:50px;border:2px solid gray;border-radius:8px;text-align:center;font-size:24px}}.error{{color:red;text-align:center}}.resend{{background:#7B2FFF;color:white;border:none;padding:10px;border-radius:8px;position:absolute;left:20px;bottom:40px}}</style></head><body><div class="header">Verify</div><p style="text-align:center">Enter code sent to {method}</p>{ '<p class="error">incorrect verification code</p>' if error else "" }<form method="POST" action="/verify"><div class="code-box">{"".join([f'<input name="d{i}" class="digit" maxlength="1" inputmode="numeric">' for i in range(6)])}</div><button class="resend" type="button" onclick="location.href='/auth/{method}'">Resend</button><button style="position:absolute;right:20px;bottom:40px;background:#7B2FFF;color:white;border:none;padding:10px;border-radius:8px">Verify</button></form></body></html>"""
+def render_welcome(): return """<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:white;margin:0}.header{background:#808080;padding:16px;text-align:center;color:white}h1{text-align:center;margin-top:40px}.btns{display:flex;justify-content:space-between;padding:20px;position:absolute;bottom:40px;width:90%}.btn{background:#7B2FFF;color:white;border:none;padding:14px 28px;border-radius:8px}</style></head><body><div class="header">Pro AI</div><h1>Welcome 🤗!</h1><div class="btns"><button class="btn" onclick="location.href='/auth/phone'">Log-in</button><button class="btn" onclick="location.href='/auth/email'">Sign-in</button></div></body></html>"""
+
+def render_contact_page(method):
+    placeholder = "Enter phone number" if method == "phone" else "Enter email"
+    return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{{background:white;margin:0}}.header{{background:#808080;padding:16px;color:white;text-align:center}}
+   .box{{padding:30px}} input{{width:100%;padding:14px;border:1px solid #ccc;border-radius:8px;font-size:16px}}
+   .btn{{background:#7B2FFF;color:white;border:none;padding:14px;width:100%;border-radius:8px;margin-top:20px;font-size:16px}}
+    </style></head><body>
+    <div class="header">Verify {method}</div>
+    <div class="box">
+    <h2>Enter your {method}</h2>
+    <p>We'll send a code to confirm it's you</p>
+    <form method="POST">
+        <input name="contact" placeholder="{placeholder}" required>
+        <button class="btn">Send Code</button>
+    </form>
+    </div></body></html>"""
+
+def render_code_page(contact, error=False):
+    method = session.get("auth_method", "phone")
+    masked = contact[:3] + "*****" + contact[-2:] if len(contact) > 5 else contact
+    return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{{background:white;margin:0}}.header{{background:#808080;padding:16px;color:white}}
+   .code-box{{display:flex;gap:10px;justify-content:center;margin-top:40px}}
+   .digit{{width:50px;height:50px;border:2px solid gray;border-radius:8px;text-align:center;font-size:24px}}
+   .error{{color:red;text-align:center}}.resend{{background:#7B2FFF;color:white;border:none;padding:10px;border-radius:8px;position:absolute;left:20px;bottom:40px}}
+    </style></head><body>
+    <div class="header">Verify</div>
+    <p style="text-align:center">Enter code sent to {masked}</p>
+    {'<p class="error">incorrect verification code</p>' if error else ""}
+    <form method="POST" action="/verify">
+    <div class="code-box">{"".join([f'<input name="d{i}" class="digit" maxlength="1" inputmode="numeric">' for i in range(6)])}</div>
+    <button class="resend" type="button" onclick="history.back()">Change {method}</button>
+    <button style="position:absolute;right:20px;bottom:40px;background:#7B2FFF;color:white;border:none;padding:10px;border-radius:8px">Verify</button>
+    </form></body></html>"""
+
 def render_username(error=None): return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{background:#111b21;color:white;margin:0}}.header{{background:#808080;padding:16px}}input{{width:80%;margin:20px 10%;padding:12px;background:#2a3942;border:2px solid {'red' if error else '#7B2FFF'};border-radius:8px;color:white}}.error{{color:red;text-align:center}}.next{{background:#7B2FFF;color:white;border:none;padding:12px 24px;border-radius:8px;position:absolute;right:20px;bottom:20px}}</style></head><body><div class="header">Enter a username</div>{f'<p class="error">{error}</p>' if error else ""}<form method="POST"><input name="username" placeholder="At least 3 words" autofocus><button class="next">Next</button></form></body></html>"""
 def render_profile_pic(): return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{background:#111b21;color:white;margin:0;text-align:center}}.header{{background:#808080;padding:16px;display:flex;justify-content:space-between}}.circle{{width:150px;height:150px;border-radius:50%;background:#7B2FFF;border:3px solid #FFD700;margin:40px auto;display:flex;align-items:center;justify-content:center;font-size:60px}}.btn{{background:#7B2FFF;color:white;border:none;padding:12px 24px;border-radius:8px;margin:10px}}</style></head><body><div class="header"><span>←</span><span>{profile['username']}</span><span></span></div><div class="circle">{profile['name'][:1].upper() if profile['name'] else 'P'}</div><button class="btn" onclick="location.href='/profile_edit'">Edit</button><form method="POST" enctype="multipart/form-data"><button class="btn" name="skip" value="1">Skip</button><button class="btn" type="submit">Next</button></form></body></html>"""
 def render_greetings(): greeting = get_greeting(); return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{background:#111b21;color:white;margin:0;text-align:center}}.header{{background:#808080;padding:12px;display:flex;justify-content:space-between;align-items:center}}.logo-anim{{font-size:32px;margin-top:20px;animation:flip 2s infinite}}@keyframes flip {{0%,100%{{transform:rotateY(0)}}50%{{transform:rotateY(180deg)}}}}.greet{{font-size:28px;margin-top:40px}}</style></head><body><div class="header"><span>⏱️</span><span class="logo-anim">Pro-ai</span><span>☰</span></div><div class="greet">{greeting}, {profile['name'].split()[0] if profile['name'] else 'there'}!</div><button onclick="location.href='/chat'" style="background:#7B2FFF;color:white;border:none;padding:14px 28px;border-radius:8px;margin-top:40px">Start Chatting</button></body></html>"""
