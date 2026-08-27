@@ -1,308 +1,211 @@
-from flask import Flask, request, session
-import json, os, datetime, time
+from flask import Flask, request, session, redirect
+import json, os, datetime, time, random
 
 app = Flask(__name__)
 app.secret_key = "pro_ai_secret_key_2026"
 DATA_FILE = "chat_data.json"
 SECURITY_FILE = "security.json"
+PROFILE_FILE = "profile.json"
+USERS_FILE = "users.json"
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {"chat_history": [], "pinned": False}
+def load_data(): return json.load(open(DATA_FILE)) if os.path.exists(DATA_FILE) else {"chat_history": [], "pinned": False}
+def save_data(d): json.dump(d, open(DATA_FILE, "w"))
+def load_security(): return json.load(open(SECURITY_FILE)) if os.path.exists(SECURITY_FILE) else {"enabled": False, "type": "none", "code": "", "biometric": False}
+def save_security(s): json.dump(s, open(SECURITY_FILE, "w"))
+def load_profile(): return json.load(open(PROFILE_FILE)) if os.path.exists(PROFILE_FILE) else {"name": "", "username": "", "photo": "", "logged_in": False}
+def save_profile(p): json.dump(p, open(PROFILE_FILE, "w"))
+def load_users(): return json.load(open(USERS_FILE)) if os.path.exists(USERS_FILE) else {}
+def save_users(u): json.dump(u, open(USERS_FILE, "w"))
 
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
-
-def load_security():
-    if os.path.exists(SECURITY_FILE):
-        with open(SECURITY_FILE, "r") as f:
-            return json.load(f)
-    return {"enabled": False, "type": "none", "code": "", "biometric": False}
-
-def save_security(sec):
-    with open(SECURITY_FILE, "w") as f:
-        json.dump(sec, f)
-
-def get_time():
-    return datetime.datetime.now().strftime("%I:%M %p")
+def get_time(): return datetime.datetime.now().strftime("%I:%M %p")
+def get_greeting():
+    h = datetime.datetime.now().hour
+    return "Good Morning" if h < 12 else "Good Afternoon" if h < 18 else "Good Evening"
 
 data = load_data()
 security = load_security()
+profile = load_profile()
+users = load_users()
 
-@app.route("/", methods=["GET", "POST"])
-def home():
-    global data, security
-    chat_history = data["chat_history"]
-    pinned = data["pinned"]
-    search_query = request.args.get("search", "")
-    incognito = session.get("incognito", False)
-    sec_page = request.args.get("sec_page", "")
+@app.route("/")
+def index():
+    if profile["logged_in"]:
+        return redirect("/greetings")
+    return render_splash()
 
+@app.route("/welcome")
+def welcome():
+    return render_welcome()
+
+@app.route("/auth/<method>")
+def auth(method):
+    code = "pro-" + "".join([str(random.randint(0,9)) for _ in range(6)])
+    session["auth_code"] = code
+    session["auth_method"] = method
+    print(f"SEND CODE {code} via {method}") # In real app: send SMS/Email/WhatsApp
+    return render_code_page()
+
+@app.route("/verify", methods=["POST"])
+def verify():
+    entered = "".join([request.form.get(f"d{i}", "") for i in range(6)])
+    if entered == session.get("auth_code", "")[4:]:
+        return redirect("/username")
+    return render_code_page(error=True)
+
+@app.route("/username", methods=["GET", "POST"])
+def username():
     if request.method == "POST":
-        action = request.form.get("action")
-        if action == "toggle_security":
-            if request.form.get("state") == "true":
-                return "open_security_page"
-            else: # turning off
-                if security["biometric"]:
-                    session["need_bio_to_disable"] = True
-                    return "need_biometric"
-                security["enabled"] = False
-                security["type"] = "none"
-                save_security(security)
-        elif action == "set_security":
-            security["enabled"] = True
-            security["type"] = request.form.get("sec_type")
-            security["code"] = request.form.get("sec_code")
-            save_security(security)
-        elif action == "set_biometric":
-            security["biometric"] = True
-            save_security(security)
-        elif action == "change_security_type":
-            new_type = request.form.get("new_type")
-            if security["biometric"]:
-                session["need_bio_to_change"] = new_type
-                return "need_biometric"
-            security["type"] = new_type
-            security["code"] = ""
-            save_security(security)
-        elif action == "toggle_incognito":
-            session["incognito"] = not incognito
-            session["last_active"] = time.time()
-        elif action == "refresh":
-            pass
-        else:
-            user_msg = request.form.get("msg")
-            if user_msg:
-                new_msg = {"sender": "you", "msg": user_msg, "time": get_time(), "ticks": 1, "timestamp": time.time()}
-                if incognito: new_msg["incognito"] = True
-                chat_history.append(new_msg)
-                reply = "Incognito Mode: I won't save this." if incognito else f"Got it: {user_msg}"
-                chat_history[-1]["ticks"] = 2
-                ai_msg = {"sender": "ai", "msg": reply, "time": get_time(), "ticks": 0, "timestamp": time.time()}
-                if incognito: ai_msg["incognito"] = True
-                chat_history.append(ai_msg)
-                data["chat_history"] = chat_history
-                save_data(data)
+        name = request.form.get("username")
+        if len(name.split()) < 3:
+            return render_username(error="incomplete!")
+        if name in users:
+            return render_username(error="this name has already been used, try another")
+        profile["name"] = name
+        profile["username"] = "@" + name.replace(" ", "_").lower()
+        users[name] = profile
+        save_users(users)
+        save_profile(profile)
+        return redirect("/profile_pic")
+    return render_username()
 
-    locked = False
-    if security["enabled"]:
-        last_active = session.get("last_active", 0)
-        if time.time() - last_active > 300:
-            locked = True
+@app.route("/profile_pic", methods=["GET", "POST"])
+def profile_pic():
+    if request.method == "POST":
+        if request.files.get("photo"):
+            request.files["photo"].save("static/user.jpg")
+            profile["photo"] = "/static/user.jpg"
+        profile["logged_in"] = True
+        save_profile(profile)
+        return redirect("/greetings")
+    return render_profile_pic()
 
-    filtered_chat = [msg for msg in chat_history if search_query.lower() in msg["msg"].lower()] if search_query else chat_history
+@app.route("/greetings")
+def greetings():
+    return render_greetings()
 
-    messages_html = ""
-    for i, item in enumerate(filtered_chat):
-        original_index = chat_history.index(item)
-        cls = "you" if item["sender"] == "you" else "ai"
-        messages_html += f'<div class="bubble {cls}" data-index="{original_index}" data-msg="{item["msg"]}">{item["msg"]}<div class="meta">{item["time"]}</div></div>'
+@app.route("/chat", methods=["GET", "POST"])
+def chat():
+    # Full chat logic here - same as before with wake word
+    return "Chat page"
 
-    incognito_text = '<div class="incognito-banner" id="incognitoBanner">🕶️ You are on Incognito Mode</div>' if incognito else ""
-    toggle_state = "checked" if security["enabled"] else ""
+def render_splash():
+    return """
+    <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}
+   .logo{width:200px;height:200px;border-radius:50%;border:4px solid #FFD700}</style>
+    </head><body><img src="/static/logo.png" class="logo">
+    <script>setTimeout(()=>{window.location="/welcome"},3000)</script></body></html>
+    """
 
+def render_welcome():
+    return """
+    <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{background:white;margin:0;font-family:Arial}
+   .header{background:#808080;padding:16px;text-align:center;color:white}
+    h1{text-align:center;margin-top:40px}
+   .btns{display:flex;justify-content:space-between;padding:20px;position:absolute;bottom:40px;width:90%}
+   .btn{background:#7B2FFF;color:white;border:none;padding:14px 28px;border-radius:8px}</style>
+    </head><body>
+    <div class="header">Pro AI</div>
+    <h1>Welcome 🤗!</h1>
+    <div class="btns">
+        <button class="btn" onclick="location.href='/auth/login'">Log-in</button>
+        <button class="btn" onclick="location.href='/auth/signup'">Sign-in</button>
+    </div></body></html>
+    """
+
+def render_code_page(error=False):
+    method = session.get("auth_method", "phone")
     return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {{ background: #111b21; color: white; font-family: Arial; margin: 0; }}
-.lock-screen {{ display: { 'flex' if locked else 'none' }; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111b21; z-index: 100; align-items: center; justify-content: center; flex-direction: column; }}
-.header {{ background: #202c33; padding: 10px 16px; height: 59px; display: flex; justify-content: space-between; align-items: center; position: fixed; width: 100%; top: 0; }}
-.menu-btn {{ background: none; border: none; color: white; font-size: 24px; }}
-.dropdown {{ display: none; position: absolute; right: 10px; top: 55px; background: #2a3942; min-width: 220px; }}
-.dropdown-row {{ display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; }}
-.switch {{ position: relative; display: inline-block; width: 50px; height: 24px; }}
-.switch input {{ opacity: 0; width: 0; height: 0; }}
-.slider {{ position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #555; transition:.4s; border-radius: 24px; }}
-.slider:before {{ position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition:.4s; border-radius: 50%; }}
-input:checked +.slider {{ background-color: #7B2FFF; }}
-input:checked +.slider:before {{ transform: translateX(26px); }}
-.security-page {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; color: black; z-index: 99; }}
-.security-header {{ background: white; color: black; padding: 16px; display: flex; align-items: center; gap: 16px; }}
-.security-option {{ padding: 16px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; }}
-.black-page {{ background: #111b21; color: white; }}
-.pattern-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; width: 300px; margin: 50px auto; }}
-.dot {{ width: 20px; height: 20px; background: white; border-radius: 50%; }}
-.btn {{ background: #7B2FFF; color: white; border: none; padding: 12px 24px; border-radius: 8px; position: absolute; bottom: 20px; right: 20px; }}
-.biometric-sheet {{ position: fixed; bottom: 0; left: 0; width: 100%; height: 50%; background: #111b21; border-radius: 20px 20px 0 0; padding: 20px; display: none; }}
-.chat {{ padding: 90px 10px 80px 10px; height: 100vh; overflow-y: scroll; }}
-.bubble {{ padding: 6px 7px; border-radius: 7.5px; margin: 6px 0; max-width: 65%; clear: both; }}
-.you {{ background: #7B2FFF; float: right; }}
-.ai {{ background: #202c33; float: left; }}
-.incognito-banner {{ background: #FF5722; text-align: center; padding: 6px; position: fixed; top: 59px; width: 100%; display: none; }}
-.input {{ position: fixed; bottom: 0; width: 100%; background: #202c33; padding: 8px 16px; }}
-    </style>
-    </head>
-    <body>
-        <div class="lock-screen" id="lockScreen">
-            <h2>Unlock Pro AI</h2>
-            <input type="password" id="unlockInput">
-            <button onclick="unlock()">Unlock</button>
-        </div>
+    <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{{background:white;margin:0;font-family:Arial}}
+   .header{{background:#808080;padding:16px;color:white}}
+   .code-box{{display:flex;gap:10px;justify-content:center;margin-top:40px}}
+   .digit{{width:50px;height:50px;border:2px solid gray;border-radius:8px;text-align:center;font-size:24px}}
+   .error{{color:red;text-align:center}}
+   .resend{{background:#7B2FFF;color:white;border:none;padding:10px;border-radius:8px;position:absolute;left:20px;bottom:40px}}</style>
+    </head><body>
+    <div class="header">Verify</div>
+    <p style="text-align:center">Enter code sent to {method}</p>
+    { '<p class="error">incorrect verification code</p>' if error else "" }
+    <form method="POST" action="/verify">
+    <div class="code-box">
+        {"".join([f'<input name="d{i}" class="digit" maxlength="1" inputmode="numeric">' for i in range(6)])}
+    </div>
+    <button class="resend" type="button" onclick="location.href='/auth/{method}'">Resend</button>
+    <button style="position:absolute;right:20px;bottom:40px;background:#7B2FFF;color:white;border:none;padding:10px;border-radius:8px">Verify</button>
+    </form></body></html>
+    """
 
-        <div class="security-page" id="securityPage">
-            <div class="security-header">
-                <button onclick="closeSecurity()" style="background:none;border:none;font-size:24px">←</button>
-                <h2>Security</h2>
-            </div>
-            <div class="security-option" onclick="startPattern()">Pattern</div>
-            <div class="security-option" onclick="startPassword()">Password</div>
-            <div class="security-option" onclick="startPin()">PIN</div>
-            <div class="security-option" onclick="startBiometric()">Biometrics</div>
-            { '<div class="security-option" onclick="openOthers()">Others →</div>' if security["enabled"] else "" }
-        </div>
+def render_username(error=None):
+    return f"""
+    <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{{background:#111b21;color:white;margin:0;font-family:Arial}}
+   .header{{background:#808080;padding:16px}}
+    input{{width:80%;margin:20px 10%;padding:12px;background:#2a3942;border:2px solid {'red' if error else '#7B2FFF'};border-radius:8px;color:white}}
+   .error{{color:red;text-align:center}}
+   .next{{background:#7B2FFF;color:white;border:none;padding:12px 24px;border-radius:8px;position:absolute;right:20px;bottom:20px}}</style>
+    </head><body>
+    <div class="header">Enter a username</div>
+    {f'<p class="error">{error}</p>' if error else ""}
+    <form method="POST"><input name="username" placeholder="At least 3 words" autofocus>
+    <button class="next">Next</button></form></body></html>
+    """
 
-        <div class="security-page black-page" id="othersPage">
-            <div class="security-header black-page">
-                <button onclick="closeOthers()" style="background:none;border:none;font-size:24px;color:white">←</button>
-                <h2>Others</h2>
-            </div>
-            <div class="security-option" onclick="editSecurity()">Edit Security</div>
-            <div class="security-option" onclick="changeSecurity()">Change Security</div>
-            <div class="security-option" onclick="turnOffSecurity()">Turn Off Security</div>
-        </div>
+def render_profile_pic():
+    return f"""
+    <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{{background:#111b21;color:white;margin:0;text-align:center}}
+   .header{{background:#808080;padding:16px;display:flex;justify-content:space-between}}
+   .circle{{width:150px;height:150px;border-radius:50%;background:#7B2FFF;border:3px solid #FFD700;margin:40px auto;display:flex;align-items:center;justify-content:center;font-size:60px}}
+   .btn{{background:#7B2FFF;color:white;border:none;padding:12px 24px;border-radius:8px;margin:10px}}</style>
+    </head><body>
+    <div class="header"><span>←</span><span>{profile['username']}</span><span></span></div>
+    <div class="circle">{profile['name'][:1].upper() if profile['name'] else 'P'}</div>
+    <button class="btn" onclick="location.href='/profile_edit'">Edit</button>
+    <form method="POST" enctype="multipart/form-data">
+        <button class="btn" name="skip" value="1">Skip</button>
+        <button class="btn" type="submit">Next</button>
+    </form></body></html>
+    """
 
-        <div class="security-page black-page" id="changePage">
-            <div class="security-header black-page">
-                <button onclick="closeChange()" style="background:none;border:none;font-size:24px;color:white">←</button>
-                <h2>Change Security Type</h2>
-            </div>
-            <div class="security-option" onclick="setNewType('pin')">Pattern/Password → PIN</div>
-            <div class="security-option" onclick="setNewType('password')">Pattern/PIN → Password</div>
-            <div class="security-option" onclick="setNewType('pattern')">Password/PIN → Pattern</div>
-        </div>
+def render_greetings():
+    greeting = get_greeting()
+    return f"""
+    <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{{background:#111b21;color:white;margin:0;text-align:center;font-family:Arial}}
+   .header{{background:#808080;padding:12px;display:flex;justify-content:space-between;align-items:center}}
+   .logo-anim{{font-size:32px;margin-top:20px;animation:flip 2s infinite}}
+    @keyframes flip {{0%,100%{{transform:rotateY(0)}}50%{{transform:rotateY(180deg)}}}}
+   .greet{{font-size:28px;margin-top:40px}}
+   .menu{{position:fixed;top:0;left:0;width:80%;height:100%;background:#2a3942;display:none;z-index:50}}</style>
+    </head><body>
+    <div class="header">
+        <span onclick="openMenu()">⏱️</span>
+        <span class="logo-anim">Pro-ai</span>
+        <span onclick="openMenu()">☰</span>
+    </div>
+    <div class="greet">{greeting}, {profile['name'].split()[0] if profile['name'] else 'there'}!</div>
 
-        <div class="biometric-sheet" id="bioSheet">
-            <h3>Authenticate</h3>
-            <p>Use fingerprint to continue</p>
-            <p style="font-size:12px;opacity:0.7">Note: chat locks after 5 minutes of inactivity or when opening the app</p>
-            <button onclick="verifyBiometric()">Verify</button>
-            <button onclick="closeBiometric()">Cancel</button>
+    <div class="menu" id="sideMenu">
+        <div style="padding:20px">
+            <button onclick="closeMenu()">New Conversation</button><br><br>
+            <button>Pinned Chats</button><br><br>
+            <button>Sessions</button>
         </div>
-
-        <div class="header">
-            <span>Pro AI</span>
-            <button class="menu-btn" onclick="toggleMenu()">⋮</button>
-            <div class="dropdown" id="menu">
-                <div class="dropdown-row">
-                    <span>Security</span>
-                    <label class="switch">
-                        <input type="checkbox" {toggle_state} onchange="toggleSecurity(this)">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                <button onclick="toggleIncognito()">{"Disable" if incognito else "Enable"} Incognito</button>
-                <button onclick="refresh()">Refresh</button>
-                <button>{ "Unpin Chat" if pinned else "Pin Chat"}</button>
-            </div>
-        </div>
-        {incognito_text}
-        <div class="chat" id="chat" onscroll="showIncognitoBanner()">{messages_html}</div>
-        <form method="POST" class="input">
-            <input name="msg" placeholder="Message">
-            <button type="submit" style="background:#7B2FFF;border:none;border-radius:50%;width:48px;height:48px;color:white">➤</button>
-        </form>
+    </div>
 
     <script>
-    let bioAction = "";
-
-    function toggleSecurity(toggle) {{
-        let form = document.createElement('form');
-        form.method = 'POST';
-        form.innerHTML = `<input name="action" value="toggle_security"><input name="state" value="${{toggle.checked}}">`;
-        document.body.appendChild(form);
-        let result = form.submit();
-        if(toggle.checked) openSecurity();
-        else if('{security["biometric"]}' === 'True') openBiometric('disable');
+    function openMenu(){{document.getElementById('sideMenu').style.display='block'}}
+    function closeMenu(){{document.getElementById('sideMenu').style.display='none'}}
+    // Wake word listener
+    let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.onresult = e => {{
+        if(e.results[0][0].transcript.toLowerCase().includes('hey professor')) location.href='/chat';
+        if(e.results[0][0].transcript.toLowerCase() === 'bye') window.close();
     }}
-
-    function openSecurity() {{
-        document.getElementById('securityPage').style.display = 'block';
-        document.getElementById('menu').style.display = 'none';
-    }}
-    function closeSecurity() {{ document.getElementById('securityPage').style.display = 'none'; }}
-    function openOthers() {{ document.getElementById('othersPage').style.display = 'block'; }}
-    function closeOthers() {{ document.getElementById('othersPage').style.display = 'none'; }}
-    function changeSecurity() {{ document.getElementById('changePage').style.display = 'block'; }}
-    function closeChange() {{ document.getElementById('changePage').style.display = 'none'; }}
-
-    function editSecurity() {{
-        alert('Enter old ' + '{security["type"]}' + ' first, then set new one');
-        openSecurity();
-    }}
-
-    function turnOffSecurity() {{
-        if('{security["biometric"]}' === 'True') openBiometric('disable');
-        else {{
-            let form = document.createElement('form');
-            form.method = 'POST';
-            form.innerHTML = '<input name="action" value="toggle_security"><input name="state" value="false">';
-            document.body.appendChild(form);
-            form.submit();
-        }}
-    }}
-
-    function setNewType(type) {{
-        if('{security["biometric"]}' === 'True') openBiometric('change_' + type);
-        else {{
-            let form = document.createElement('form');
-            form.method = 'POST';
-            form.innerHTML = `<input name="action" value="change_security_type"><input name="new_type" value="${{type}}">`;
-            document.body.appendChild(form);
-            form.submit();
-        }}
-    }}
-
-    function openBiometric(action) {{
-        bioAction = action;
-        document.getElementById('bioSheet').style.display = 'block';
-    }}
-    function closeBiometric() {{ document.getElementById('bioSheet').style.display = 'none'; }}
-
-    function verifyBiometric() {{
-        if(bioAction === 'disable') {{
-            let form = document.createElement('form');
-            form.method = 'POST';
-            form.innerHTML = '<input name="action" value="toggle_security"><input name="state" value="false">';
-            document.body.appendChild(form);
-            form.submit();
-        }} else if(bioAction.startsWith('change_')) {{
-            let newType = bioAction.split('_')[1];
-            let form = document.createElement('form');
-            form.method = 'POST';
-            form.innerHTML = `<input name="action" value="change_security_type"><input name="new_type" value="${{newType}}">`;
-            document.body.appendChild(form);
-            form.submit();
-        }}
-        closeBiometric();
-    }}
-
-    function unlock() {{
-        if(document.getElementById('unlockInput').value === '{security["code"]}') {{
-            document.getElementById('lockScreen').style.display = 'none';
-        }}
-    }}
-
-    function toggleMenu() {{
-        document.getElementById('menu').style.display = document.getElementById('menu').style.display === 'block'? 'none' : 'block';
-    }}
-
-    function showIncognitoBanner() {{
-        if({str(incognito).lower()}) {{
-            document.getElementById('incognitoBanner').style.display = 'block';
-            setTimeout(() => document.getElementById('incognitoBanner').style.display = 'none', 5000);
-        }}
-    }}
-    showIncognitoBanner();
-    </script>
-    </body>
-    </html>
+    recognition.start();
+    </script></body></html>
     """
 
 if __name__ == "__main__":
