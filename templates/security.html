@@ -1,12 +1,42 @@
 <!DOCTYPE html>
 <html>
-<head><title>Security Settings - Pro-ai</title>
-<style>body{background:#0a0a0a;color:#fff;font-family:Arial;padding:20px;}.back{color:#FFD700;text-decoration:none;}</style>
+<head>
+    <title>Security Settings - Pro-ai</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { background:#0a0a0a; color:#fff; font-family:Arial; margin:0; padding:20px; }
+.container { max-width:500px; margin:40px auto; background:#111; padding:30px; border-radius:12px; border:1px solid #333; }
+  h1 { color:#FFD700; text-align:center; margin-bottom:30px; }
+.setting { display:flex; justify-content:space-between; align-items:center; padding:15px; background:#222; border-radius:8px; margin-bottom:15px; }
+.setting label { font-weight:bold; }
+.toggle-btn { background:#FFD700; color:#000; padding:10px 20px; border-radius:8px; text-decoration:none; font-weight:bold; }
+.toggle-btn.off { background:#444; color:#fff; }
+.flash { background:#333; padding:10px; border-radius:5px; margin-bottom:15px; text-align:center; color:#FFD700; }
+.back { display:block; text-align:center; margin-top:20px; color:#FFD700; text-decoration:none; }
+.note { font-size:12px; color:#888; margin-top:5px; }
+    </style>
 </head>
 <body>
-<h1 style="color:#FFD700;">Security Settings</h1>
-<p>Incognito: {{ 'ON' if user[7]==1 else 'OFF' }}</p>
-<p><a href="/toggle-incognito">Toggle Incognito</a></p>
-<br><a href="/dashboard" class="back">← Back to Chat</a>
+    <div class="container">
+        <h1 style="color:#FFD700;">Security Settings</h1>
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash">{{ messages[0] }}</div>
+          {% endif %}
+        {% endwith %}
+
+        <div class="setting">
+            <div>
+                <label>Incognito Mode</label>
+                <div class="note">When ON, chats are not saved to history</div>
+            </div>
+            <a href="/toggle-incognito" class="toggle-btn {% if user[7]==0 %}off{% endif %}">
+                {{ 'ON' if user[7]==1 else 'OFF' }}
+            </a>
+        </div>
+
+        <a href="/dashboard" class="back">← Back to Chat</a>
+    </div>
 </body>
 </html>
