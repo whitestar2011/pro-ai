@@ -17,6 +17,12 @@ def index():
 import google.generativeai as genai
 
 app = Flask(__name__)
+@app.route('/')
+def index():
+    try:
+        return "<h1>Pro-ai is running!</h1>"
+    except Exception as e:
+        return f"ERROR: {e}\n{traceback.format_exc()}"
 @app.route('/health')
 def health():
     return "Pro-ai is alive"
