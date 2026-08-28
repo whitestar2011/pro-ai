@@ -9,6 +9,9 @@ from gtts import gTTS
 import google.generativeai as genai
 
 app = Flask(__name__)
+@app.route('/health')
+def health():
+    return "Pro-ai is alive"
 app.secret_key = os.getenv("SECRET_KEY", "proai_secret_key_change_this")
 DB = 'users_v2.db'
 
