@@ -12,6 +12,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import re
 from werkzeug.utils import secure_filename
+from gtts import gTTS # NEW
+from dotenv import load_dotenv # NEW
+load_dotenv() # NEW
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "supersecretkey_pro_ai_2026")
@@ -83,7 +86,7 @@ def get_messages(user_id):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     user = get_user_by_id(user_id)
-    if user and user[7] == 1: # incognito ON = don't load history
+    if user and user[7] == 1:
         messages = []
     else:
         c.execute("SELECT * FROM messages WHERE user_id=? ORDER BY created_at ASC", (user_id,))
@@ -254,6 +257,7 @@ def api_upload():
     msg_type = request.form.get('type', 'text')
     content = request.form.get('content', '')
     file_url = None
+    tts_url = None # NEW
 
     if 'file' in request.files:
         file = request.files['file']
@@ -270,20 +274,29 @@ def api_upload():
         if msg_type == 'image': ai_reply = "Got your image! What should I do with it?"
         elif msg_type == 'voice': ai_reply = "I heard your voice note."
 
+        # GENERATE TTS FOR AI REPLY
+        tts_filename = f"tts_{user_id}_{uuid.uuid4()}.mp3"
+        tts_filepath = os.path.join(app.config['UPLOAD_FOLDER'], tts_filename)
+        tts = gTTS(text=ai_reply, lang='en', slow=False)
+        tts.save(tts_filepath)
+        tts_url = f"/static/uploads/{tts_filename}"
+
     except requests.exceptions.Timeout:
         ai_reply = "⚠️ No network connection. Please check your internet and try again."
+    except Exception as e:
+        print("TTS Error:", e)
 
-    if user[7] == 0: # Only save if incognito is OFF
+    if user[7] == 0:
         conn = sqlite3.connect(DB)
         c = conn.cursor()
         c.execute("INSERT INTO messages (user_id, role, type, content, file_url) VALUES (?,?,?,?,?)",
                   (user_id, 'user', msg_type, content, file_url))
-        c.execute("INSERT INTO messages (user_id, role, type, content) VALUES (?,?,?,?)",
-                  (user_id, 'ai', 'text', ai_reply))
+        c.execute("INSERT INTO messages (user_id, role, type, content, file_url) VALUES (?,?,?,?,?)",
+                  (user_id, 'ai', 'text', ai_reply, tts_url)) # save tts_url
         conn.commit()
         conn.close()
 
-    return jsonify({"success": True, "reply": ai_reply})
+    return jsonify({"success": True, "reply": ai_reply, "tts_url": tts_url}) # send tts_url
 
 @app.route('/pin/<int:msg_id>')
 def pin_message(msg_id):
