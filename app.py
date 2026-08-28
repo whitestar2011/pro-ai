@@ -15,6 +15,13 @@ def index():
     except Exception as e:
         return f"ERROR: {e}\n{traceback.format_exc()}"
 import google.generativeai as genai
+from dotenv import load_dotenv
+load_dotenv() # add this right under imports
+
+import os
+import google.generativeai as genai
+
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 app = Flask(__name__)
 @app.route('/')
