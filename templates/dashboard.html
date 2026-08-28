@@ -1,50 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Pro AI Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <title>Pro AI Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="background:#111; color:white; margin:0; font-family:Arial;">
+<body style="background:#0a0a0a; color:white; font-family:Arial; margin:0; padding:0;">
   
-  <!-- HEADER -->
-  <header style="display:flex; justify-content:space-between; align-items:center; padding:15px 20px; border-bottom:2px solid #FFD700; background:#000;">
+  <!-- NAVBAR -->
+  <div style="display:flex; justify-content:space-between; align-items:center; padding:15px 30px; border-bottom:1px solid #FFD700;">
     <img src="/static/logo.svg" height="40">
-    <div style="position:relative;">
-      <button onclick="toggleMenu()" style="font-size:24px; background:none; border:none; color:#FFD700; cursor:pointer;">⋮</button>
-      
-      <!-- KEBAB MENU -->
-      <div id="menu" style="display:none; position:absolute; right:0; top:40px; background:#000; padding:10px; border:1px solid #FFD700; border-radius:8px; width:200px;">
-        <!-- SHARE BUTTON -->
-        <button id="shareBtn" style="width:100%; padding:12px; background:#2563EB; color:white; border:none; border-radius:8px; font-weight:600; cursor:pointer; margin-bottom:10px;">
-          Share
-        </button>
-        <a href="/logout" style="display:block; padding:12px; color:red; text-decoration:none; text-align:center; border-radius:8px; background:#220000;">Logout</a>
-      </div>
+    <div>
+      <span style="color:#FFD700; margin-right:20px;">Hi, {{ user }}</span>
+      <a href="/logout" style="color:#FFD700; text-decoration:none; border:1px solid #FFD700; padding:8px 15px; border-radius:8px;">Logout</a>
     </div>
-  </header>
+  </div>
 
   <!-- MAIN CONTENT -->
-  <div style="padding:30px; text-align:center;">
-    <h1>Welcome to Pro AI</h1>
-    <p>Your AI is ready to use</p>
+  <div style="text-align:center; padding:60px 20px;">
+    <h1 style="color:#FFD700; font-size:32px;">Welcome to Pro AI Dashboard</h1>
+    <p style="color:#ccc; font-size:16px;">You are successfully logged in</p>
+    
+    <!-- AI CHAT BOX PLACEHOLDER -->
+    <div style="max-width:700px; margin:40px auto; background:#111; border:2px solid #FFD700; border-radius:16px; padding:30px;">
+      <h3 style="color:#FFD700;">Your AI Assistant</h3>
+      <p style="color:#aaa;">This is where your chat/AI will go later</p>
+    </div>
+
+    <!-- SHARE BUTTON -->
+    <button onclick="copyLink()" style="padding:12px 30px; background:#FFD700; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:16px;">
+      Share Pro AI
+    </button>
+    <p id="copied" style="color:#00ff00; margin-top:10px; display:none;">Link Copied!</p>
   </div>
 
 <script>
-function toggleMenu(){ 
-  let menu = document.getElementById('menu');
-  menu.style.display = menu.style.display=='block' ? 'none' : 'block'; 
-}
-
-document.getElementById('shareBtn').onclick = async () => {
-  const url = 'https://pro-ai-muxb.onrender.com';
-  if(navigator.share){ 
-    await navigator.share({title: 'Pro AI', text: 'Check out this AI!', url: url}) 
-  } else { 
-    await navigator.clipboard.writeText(url); 
-    alert('Link copied to clipboard!') 
-  }
+function copyLink() {
+  navigator.clipboard.writeText("https://pro-ai-muxb.onrender.com");
+  document.getElementById("copied").style.display = "block";
+  setTimeout(()=> document.getElementById("copied").style.display = "none", 2000);
 }
 </script>
+
 </body>
 </html>
