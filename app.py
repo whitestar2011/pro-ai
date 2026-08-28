@@ -13,7 +13,7 @@ app.secret_key = os.getenv("SECRET_KEY", "proai_secret_key_change_this")
 DB = 'users_v2.db'
 
 # ===== GEMINI SETUP - PUT YOUR KEY ON LINE 16 =====
-GEMINI_API_KEY = "AIzaSyD2IDPgY3fF7yqfhMq2nXNwcXyq9-8I8NY"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 # ==================================================
