@@ -1,275 +1,221 @@
-from flask import Flask, request, session, redirect
-from dotenv import load_dotenv
-import json, os, datetime, time, random, requests, re, google.generativeai as genai
-
-load_dotenv() # Loads your.env file
+import os
+import random
+import sqlite3
+import bcrypt
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import re
 
 app = Flask(__name__)
-app.secret_key = "pro_ai_secret_key_2026"
+app.secret_key = os.environ.get("SECRET_KEY", "supersecretkey")
 
-# ===== CONFIG =====
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+DB = 'users.db'
 
-DATA_FILE = "chat_data.json"
-SECURITY_FILE = "security.json"
-PROFILE_FILE = "profile.json"
-USERS_FILE = "users.json"
+# ========== DATABASE ==========
+def init_db():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    # email for OTP, username for password login
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (id INTEGER PRIMARY KEY, 
+                 email TEXT UNIQUE, 
+                 username TEXT UNIQUE,
+                 otp TEXT, 
+                 password_hash TEXT, 
+                 is_verified INTEGER)''')
+    conn.commit()
+    conn.close()
 
-# ===== HELPERS =====
-def load_data(): return json.load(open(DATA_FILE)) if os.path.exists(DATA_FILE) else {"chat_history": [], "pinned": False}
-def save_data(d): json.dump(d, open(DATA_FILE, "w"))
-def load_security(): return json.load(open(SECURITY_FILE)) if os.path.exists(SECURITY_FILE) else {"enabled": False, "type": "none", "code": "", "biometric": False}
-def save_security(s): json.dump(s, open(SECURITY_FILE, "w"))
-def load_profile(): return json.load(open(PROFILE_FILE)) if os.path.exists(PROFILE_FILE) else {"name": "", "username": "", "photo": "", "logged_in": False}
-def save_profile(p): json.dump(p, open(PROFILE_FILE, "w"))
-def load_users(): return json.load(open(USERS_FILE)) if os.path.exists(USERS_FILE) else {}
-def save_users(u): json.dump(u, open(USERS_FILE, "w"))
-def get_time(): return datetime.datetime.now().strftime("%I:%M %p")
-def get_greeting():
-    h = datetime.datetime.now().hour
-    return "Good Morning" if h < 12 else "Good Afternoon" if h < 18 else "Good Evening"
+init_db()
 
-def scan_url(url):
-    try:
-        headers = {"x-apikey": VIRUSTOTAL_API_KEY}
-        res = requests.post("https://www.virustotal.com/api/v3/urls", headers=headers, data={"url": url})
-        analysis_id = res.json()["data"]["id"]
-        time.sleep(2)
-        report = requests.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=headers)
-        stats = report.json()["data"]["attributes"]["stats"]
-        return stats["malicious"] == 0 and stats["suspicious"] == 0
-    except: return True
-
-def find_links(text): return re.findall(r'http[s]?://\S+', text)
-
-data = load_data()
-security = load_security()
-profile = load_profile()
-users = load_users()
-
-# ===== ROUTES =====
-@app.route("/")
-def index():
-    if profile["logged_in"]: return redirect("/greetings")
-    return render_splash()
-
-@app.route("/welcome")
-def welcome(): return render_welcome()
-
-@app.route("/auth/<method>", methods=["GET", "POST"])
-def auth(method):
-    if request.method == "POST":
-        contact = request.form.get("contact") # phone or email
-        session["contact"] = contact
-        
-        code = "pro-" + "".join([str(random.randint(0,9)) for _ in range(6)])
-        session["auth_code"] = code
-        session["auth_method"] = method
-        print(f"SEND CODE {code} to {contact} via {method}")
-        return render_code_page(contact) # Step 2: Show code page
+# ========== EMAIL FUNCTION ==========
+def send_email(to_email, subject, code, type="login"):
+    sender_email = os.environ['GMAIL_EMAIL']
+    sender_password = os.environ['GMAIL_PASSWORD']
     
-    return render_contact_page(method) # Step 1: Ask for number/email first
+    msg = MIMEMultipart("alternative")
+    msg['From'] = f"Pro AI Security <{sender_email}>"
+    msg['To'] = to_email
+    msg['Subject'] = subject
 
-@app.route("/verify", methods=["POST"])
-def verify():
-    entered = "".join([request.form.get(f"d{i}", "") for i in range(6)])
-    if entered == session.get("auth_code", "")[4:]:
-        return redirect("/username")
-    return render_code_page(session.get("contact", ""), error=True)
+    if type == "login":
+        body = f"<h2>Pro AI Login Code</h2><p>Your code: <b style='font-size:24px; letter-spacing:5px;'>{code}</b></p><p>Expires in 10 minutes.</p>"
+    elif type == "reset":
+        body = f"<h2>Password Reset Request</h2><p>Someone requested to reset your Pro AI password.</p><p>Code: <b style='font-size:24px; letter-spacing:5px;'>{code}</b></p><p>If this wasn't you, ignore this email.</p>"
+    elif type == "security":
+        body = f"<h2>Security Alert</h2><p>Your Pro AI password was just changed.</p><p>If this wasn't you, please reset your password immediately.</p>"
 
-@app.route("/username", methods=["GET", "POST"])
-def username():
-    if request.method == "POST":
-        name = request.form.get("username")
-        if len(name.split()) < 3: return render_username(error="incomplete!")
-        if name in users: return render_username(error="this name has already been used, try another")
-        profile["name"] = name
-        profile["username"] = "@" + name.replace(" ", "_").lower()
-        users[name] = profile
-        save_users(users); save_profile(profile)
-        return redirect("/profile_pic")
-    return render_username()
+    html = f"<html><body style='font-family: Arial; background:#f6f9fc;'><div style='max-width: 500px; margin: 20px auto; padding: 30px; border-radius: 12px; background:white;'>{body}</div></body></html>"
+    msg.attach(MIMEText(html, "html"))
 
-@app.route("/profile_pic", methods=["GET", "POST"])
-def profile_pic():
-    if request.method == "POST":
-        if request.files.get("photo"):
-            request.files["photo"].save("static/user.jpg")
-            profile["photo"] = "/static/user.jpg"
-        profile["logged_in"] = True
-        save_profile(profile)
-        return redirect("/greetings")
-    return render_profile_pic()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(sender_email, sender_password)
+        server.sendmail(sender_email, to_email, msg.as_string())
 
-@app.route("/greetings")
-def greetings(): return render_greetings()
 
-@app.route("/chat", methods=["GET", "POST"])
-def chat():
-    global data
-    chat_history = data["chat_history"]
-    incognito = session.get("incognito", False)
+def detect_login_type(identifier):
+    if re.match(r"[^@]+@[^@]+\.[^@]+", identifier): return "email"
+    else: return "username"
 
-    if security["enabled"]:
-        if time.time() - session.get("last_active", 0) > 300 or session.get("just_opened", True):
-            session["just_opened"] = False
-            return render_lock_screen()
+def get_user_by_identifier(identifier, login_type):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute(f"SELECT * FROM users WHERE {login_type}=?", (identifier,))
+    user = c.fetchone()
+    conn.close()
+    return user
 
-    if request.method == "POST":
-        action = request.form.get("action")
-        if action == "toggle_incognito":
-            session["incognito"] = not incognito
+# ========== ROUTES ==========
+@app.route('/')
+def home():
+    if 'user' in session:
+        return render_template('dashboard.html')
+    return render_template('login.html') # 1 page for email/username
+
+@app.route('/send_login', methods=['POST'])
+def send_login():
+    identifier = request.form['identifier']
+    login_type = detect_login_type(identifier)
+    session['identifier'] = identifier
+    session['login_type'] = login_type
+    
+    user = get_user_by_identifier(identifier, login_type)
+
+    if login_type == "username":
+        if not user or user[4] is None: # password_hash column
+            flash("Username not found or no password set. Use email first to create account.")
+            return redirect(url_for('home'))
+        return redirect(url_for('login_password')) # Go to password page
+    
+    else: # email
+        code = str(random.randint(100000, 999))
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        if not user:
+            c.execute("INSERT INTO users (email, otp, is_verified) VALUES (?,?, 0)", (identifier, code))
         else:
-            user_msg = request.form.get("msg")
-            if user_msg:
-                safety_warning = ""
-                for link in find_links(user_msg):
-                    if not scan_url(link): safety_warning = f"\n\n⚠️ Warning: Link flagged unsafe"
+            c.execute("UPDATE users SET otp=? WHERE email=?", (code, identifier))
+        conn.commit()
+        conn.close()
+        
+        send_email(identifier, "Your Pro AI Login Code", code, "login")
+        return redirect(url_for('verify_otp'))
 
-                new_msg = {"sender": "you", "msg": user_msg, "time": get_time()}
-                if incognito: new_msg["incognito"] = True
-                chat_history.append(new_msg)
+@app.route('/login_password', methods=['GET', 'POST'])
+def login_password():
+    if request.method == 'POST':
+        password = request.form['password']
+        identifier = session.get('identifier')
+        user = get_user_by_identifier(identifier, 'username')
+        if user and user[4] and bcrypt.checkpw(password.encode('utf-8'), user[4]):
+            session['user'] = identifier
+            return redirect(url_for('dashboard'))
+        else:
+            flash("Wrong password")
+    return render_template('login_password.html')
 
-                try:
-                    response = model.generate_content(user_msg)
-                    reply = response.text + safety_warning
-                except:
-                    reply = "I'm having trouble connecting to AI. Check your GEMINI_API_KEY in.env" + safety_warning
+@app.route('/verify_otp', methods=['GET', 'POST'])
+def verify_otp():
+    if request.method == 'POST':
+        code = request.form['otp']
+        identifier = session.get('identifier')
+        user = get_user_by_identifier(identifier, 'email')
+        
+        if user and code == user[3]: # otp column
+            session['otp_verified'] = True
+            session['user_id'] = user[0]
+            if user[4] is None: # no password yet
+                return redirect(url_for('set_password'))
+            else:
+                session['user'] = identifier
+                return redirect(url_for('dashboard'))
+        else:
+            flash("Wrong code")
+    return render_template('verify_otp.html')
 
-                ai_msg = {"sender": "ai", "msg": reply, "time": get_time(), "voice": True}
-                if incognito: ai_msg["incognito"] = True
-                chat_history.append(ai_msg)
-                data["chat_history"] = chat_history
-                save_data(data)
+@app.route('/set_password', methods=['GET', 'POST'])
+def set_password():
+    if not session.get('otp_verified'):
+        return redirect(url_for('home'))
+    
+    if request.method == 'POST':
+        password = request.form['password']
+        username = request.form['username'] # Let them pick username here
+        user_id = session.get('user_id')
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        try:
+            c.execute("UPDATE users SET password_hash=?, username=?, is_verified=1 WHERE id=?", (hashed, username, user_id))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            flash("Username already taken")
+            return redirect(url_for('set_password'))
+        conn.close()
+        
+        # SECURITY EMAIL
+        c.execute("SELECT email FROM users WHERE id=?", (user_id,))
+        email = c.fetchone()[0]
+        send_email(email, "Pro AI Security Alert", "", "security")
+            
+        session['user'] = username
+        return redirect(url_for('dashboard'))
+    return render_template('set_password.html')
 
-    messages_html = ""
-    for item in chat_history:
-        cls = "you" if item["sender"] == "you" else "ai"
-        user_photo = f'<img src="{profile["photo"]}" class="user-avatar">' if profile["photo"] else '<div class="user-avatar default"></div>'
-        ai_logo = '<img src="/static/logo.png" class="ai-avatar" onerror="this.style.display=\'none\'">'
-        voice_btn = f'<button onclick="speak(`{item["msg"]}`)" style="background:none;border:none;color:#53bdeb;font-size:16px">🔊</button>' if cls == "ai" else ""
-        if cls == "you": messages_html += f'<div class="bubble {cls}">{user_photo}<div>{item["msg"]}<div class="meta">{item["time"]}</div></div></div>'
-        else: messages_html += f'<div class="bubble {cls}"><div>{item["msg"]}{voice_btn}<div class="meta">{item["time"]}</div></div>{ai_logo}</div>'
+# ========== FORGOT PASSWORD ==========
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form['email']
+        code = str(random.randint(100000, 999))
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        c.execute("UPDATE users SET otp=? WHERE email=?", (code, email))
+        conn.commit()
+        conn.close()
+        send_email(email, "Pro AI Password Reset", code, "reset")
+        session['reset_email'] = email
+        return redirect(url_for('reset_password'))
+    return render_template('forgot_password.html')
 
-    toggle_state = "checked" if security["enabled"] else ""
-    return f"""
-    <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>
-    body{{background:#111b21;color:white;margin:0;font-family:Arial}}
-   .header{{background:#202c33;padding:10px 16px;height:59px;display:flex;justify-content:space-between;align-items:center;position:fixed;width:100%;top:0;box-sizing:border-box}}
-   .header-logo{{width:40px;height:40px;border-radius:50%;border:2px solid #FFD700}}
-   .menu-btn{{background:none;border:none;color:white;font-size:24px}}
-   .dropdown{{display:none;position:absolute;right:10px;top:55px;background:#2a3942;min-width:240px;border-radius:8px;z-index:10}}
-   .profile-section{{padding:16px;border-bottom:1px solid #3a4a52}}
-   .profile-section input{{width:100%;padding:8px;margin:6px 0;background:#111b21;border:1px solid #555;border-radius:6px;color:white}}
-   .switch{{position:relative;display:inline-block;width:50px;height:24px}}
-   .switch input{{opacity:0}}.slider{{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#555;border-radius:24px}}
-    input:checked +.slider{{background-color:#7B2FFF}}
-   .chat{{padding:90px 10px 80px 10px;height:100vh;overflow-y:scroll}}
-   .bubble{{display:flex;gap:8px;margin:6px 0;max-width:75%;clear:both;align-items:flex-end}}
-   .you{{float:right}}.ai{{float:left}}
-   .user-avatar{{width:32px;height:32px;border-radius:50%;background:#7B2FFF}}
-   .ai-avatar{{width:28px;height:28px;border-radius:50%;border:1.5px solid #FFD700}}
-   .bubble > div{{padding:6px 10px;border-radius:7.5px;background:#202c33}}
-   .you > div{{background:#7B2FFF}}
-   .meta{{font-size:11px;color:#8696a0;text-align:right;margin-top:4px}}
-   .input{{position:fixed;bottom:0;width:100%;background:#202c33;padding:8px 16px;display:flex;gap:8px;box-sizing:border-box}}
-   .input input{{flex:1;padding:12px 15px;border-radius:25px;border:none;background:#2a3942;color:white}}
-   .send-btn{{background:#7B2FFF;border:none;border-radius:50%;width:48px;height:48px;color:white}}
-   .mic-btn{{background:#FF5722;border:none;border-radius:50%;width:48px;height:48px;color:white}}
-   .mic-btn.recording{{background:red;animation:pulse 1s infinite}}
-    @keyframes pulse {{0%{{transform:scale(1)}}50%{{transform:scale(1.1)}}100%{{transform:scale(1)}}}}
-    </style></head><body>
-    <div class="header">
-        <img src="/static/logo.png" class="header-logo" onerror="this.style.display='none'">
-        <button class="menu-btn" onclick="toggleMenu()">⋮</button>
-        <div class="dropdown" id="menu">
-            <div class="profile-section">
-                <b>Profile</b>
-                <form method="POST" enctype="multipart/form-data">
-                    <input type="hidden" name="action" value="update_profile">
-                    <input name="name" placeholder="Your Name" value="{profile['name']}">
-                    <input name="username" placeholder="Username" value="{profile['username']}">
-                    <input type="file" name="photo" accept="image/*">
-                    <button type="submit" style="background:#7B2FFF;border:none;padding:8px;border-radius:6px;color:white;width:100%;margin-top:6px">Save</button>
-                </form>
-            </div>
-            <div style="padding:12px 16px;display:flex;justify-content:space-between"><span>Security</span>
-                <label class="switch"><input type="checkbox" {toggle_state}><span class="slider"></span></label>
-            </div>
-            <button onclick="showFeatures()" style="background:none;border:none;color:white;padding:12px 16px;width:100%;text-align:left">✨ Features</button>
-            <form method="POST"><input type="hidden" name="action" value="toggle_incognito">
-                <button style="background:none;border:none;color:white;padding:12px 16px;width:100%;text-align:left">{"Disable" if incognito else "Enable"} Incognito</button>
-            </form>
-            <button onclick="refresh()" style="background:none;border:none;color:white;padding:12px 16px;width:100%;text-align:left">Refresh</button>
-        </div>
-    </div>
-    <div class="chat">{messages_html}</div>
-    <form method="POST" class="input" id="msgForm">
-        <input name="msg" id="msgInput" placeholder="Message">
-        <button type="button" class="mic-btn" id="micBtn">🎤</button>
-        <button type="submit" class="send-btn">➤</button>
-    </form>
-    <script>
-    let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    recognition.lang = 'en-US'; recognition.continuous = false;
-    let micBtn = document.getElementById('micBtn'); let msgInput = document.getElementById('msgInput');
-    micBtn.onmousedown = micBtn.ontouchstart = () => {{micBtn.classList.add('recording'); recognition.start();}}
-    micBtn.onmouseup = micBtn.ontouchend = () => {{micBtn.classList.remove('recording'); recognition.stop();}}
-    recognition.onresult = e => {{msgInput.value = e.results[0][0].transcript; document.getElementById('msgForm').submit();}}
-    function speak(text) {{let utterance = new SpeechSynthesisUtterance(text); speechSynthesis.speak(utterance);}}
-    function toggleMenu(){{document.getElementById('menu').style.display = document.getElementById('menu').style.display === 'block'? 'none' : 'block'}}
-    function showFeatures(){{alert('Features Page Coming Soon')}}
-    function refresh(){{location.reload()}}
-    </script></body></html>
-    """
+@app.route('/reset_password', methods=['GET', 'POST'])
+def reset_password():
+    if request.method == 'POST':
+        code = request.form['otp']
+        password = request.form['password']
+        email = session.get('reset_email')
+        user = get_user_by_identifier(email, 'email')
+        if user and code == user[3]:
+            hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+            conn = sqlite3.connect(DB)
+            c = conn.cursor()
+            c.execute("UPDATE users SET password_hash=? WHERE email=?", (hashed, email))
+            conn.commit()
+            conn.close()
+            send_email(email, "Pro AI Security Alert", "", "security") # alert
+            flash("Password reset successful")
+            return redirect(url_for('home'))
+        else:
+            flash("Invalid code")
+    return render_template('reset_password.html')
 
-# ===== RENDER FUNCTIONS =====
-def render_splash(): return """<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}.logo{width:200px;height:200px;border-radius:50%;border:4px solid #FFD700}</style></head><body><img src="/static/logo.png" class="logo"><script>setTimeout(()=>{window.location="/welcome"},3000)</script></body></html>"""
-def render_welcome(): return """<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:white;margin:0}.header{background:#808080;padding:16px;text-align:center;color:white}h1{text-align:center;margin-top:40px}.btns{display:flex;justify-content:space-between;padding:20px;position:absolute;bottom:40px;width:90%}.btn{background:#7B2FFF;color:white;border:none;padding:14px 28px;border-radius:8px}</style></head><body><div class="header">Pro AI</div><h1>Welcome 🤗!</h1><div class="btns"><button class="btn" onclick="location.href='/auth/phone'">Log-in</button><button class="btn" onclick="location.href='/auth/email'">Sign-in</button></div></body></html>"""
+@app.route('/dashboard')
+def dashboard():
+    if 'user' not in session:
+        return redirect(url_for('home'))
+    return render_template('dashboard.html', user=session['user'])
 
-def render_contact_page(method):
-    placeholder = "Enter phone number" if method == "phone" else "Enter email"
-    return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>body{{background:white;margin:0}}.header{{background:#808080;padding:16px;color:white;text-align:center}}
-   .box{{padding:30px}} input{{width:100%;padding:14px;border:1px solid #ccc;border-radius:8px;font-size:16px}}
-   .btn{{background:#7B2FFF;color:white;border:none;padding:14px;width:100%;border-radius:8px;margin-top:20px;font-size:16px}}
-    </style></head><body>
-    <div class="header">Verify {method}</div>
-    <div class="box">
-    <h2>Enter your {method}</h2>
-    <p>We'll send a code to confirm it's you</p>
-    <form method="POST">
-        <input name="contact" placeholder="{placeholder}" required>
-        <button class="btn">Send Code</button>
-    </form>
-    </div></body></html>"""
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('home'))
 
-def render_code_page(contact, error=False):
-    method = session.get("auth_method", "phone")
-    masked = contact[:3] + "*****" + contact[-2:] if len(contact) > 5 else contact
-    return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>body{{background:white;margin:0}}.header{{background:#808080;padding:16px;color:white}}
-   .code-box{{display:flex;gap:10px;justify-content:center;margin-top:40px}}
-   .digit{{width:50px;height:50px;border:2px solid gray;border-radius:8px;text-align:center;font-size:24px}}
-   .error{{color:red;text-align:center}}.resend{{background:#7B2FFF;color:white;border:none;padding:10px;border-radius:8px;position:absolute;left:20px;bottom:40px}}
-    </style></head><body>
-    <div class="header">Verify</div>
-    <p style="text-align:center">Enter code sent to {masked}</p>
-    {'<p class="error">incorrect verification code</p>' if error else ""}
-    <form method="POST" action="/verify">
-    <div class="code-box">{"".join([f'<input name="d{i}" class="digit" maxlength="1" inputmode="numeric">' for i in range(6)])}</div>
-    <button class="resend" type="button" onclick="history.back()">Change {method}</button>
-    <button style="position:absolute;right:20px;bottom:40px;background:#7B2FFF;color:white;border:none;padding:10px;border-radius:8px">Verify</button>
-    </form></body></html>"""
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
 
-def render_username(error=None): return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{background:#111b21;color:white;margin:0}}.header{{background:#808080;padding:16px}}input{{width:80%;margin:20px 10%;padding:12px;background:#2a3942;border:2px solid {'red' if error else '#7B2FFF'};border-radius:8px;color:white}}.error{{color:red;text-align:center}}.next{{background:#7B2FFF;color:white;border:none;padding:12px 24px;border-radius:8px;position:absolute;right:20px;bottom:20px}}</style></head><body><div class="header">Enter a username</div>{f'<p class="error">{error}</p>' if error else ""}<form method="POST"><input name="username" placeholder="At least 3 words" autofocus><button class="next">Next</button></form></body></html>"""
-def render_profile_pic(): return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{background:#111b21;color:white;margin:0;text-align:center}}.header{{background:#808080;padding:16px;display:flex;justify-content:space-between}}.circle{{width:150px;height:150px;border-radius:50%;background:#7B2FFF;border:3px solid #FFD700;margin:40px auto;display:flex;align-items:center;justify-content:center;font-size:60px}}.btn{{background:#7B2FFF;color:white;border:none;padding:12px 24px;border-radius:8px;margin:10px}}</style></head><body><div class="header"><span>←</span><span>{profile['username']}</span><span></span></div><div class="circle">{profile['name'][:1].upper() if profile['name'] else 'P'}</div><button class="btn" onclick="location.href='/profile_edit'">Edit</button><form method="POST" enctype="multipart/form-data"><button class="btn" name="skip" value="1">Skip</button><button class="btn" type="submit">Next</button></form></body></html>"""
-def render_greetings(): greeting = get_greeting(); return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{background:#111b21;color:white;margin:0;text-align:center}}.header{{background:#808080;padding:12px;display:flex;justify-content:space-between;align-items:center}}.logo-anim{{font-size:32px;margin-top:20px;animation:flip 2s infinite}}@keyframes flip {{0%,100%{{transform:rotateY(0)}}50%{{transform:rotateY(180deg)}}}}.greet{{font-size:28px;margin-top:40px}}</style></head><body><div class="header"><span>⏱️</span><span class="logo-anim">Pro-ai</span><span>☰</span></div><div class="greet">{greeting}, {profile['name'].split()[0] if profile['name'] else 'there'}!</div><button onclick="location.href='/chat'" style="background:#7B2FFF;color:white;border:none;padding:14px 28px;border-radius:8px;margin-top:40px">Start Chatting</button></body></html>"""
-def render_lock_screen(): return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{background:#111b21;color:white;display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column}}input{{padding:12px;border-radius:8px;border:none;margin:10px;background:#2a3942;color:white}}button{{background:#7B2FFF;border:none;padding:12px 24px;border-radius:8px;color:white}}</style></head><body><h2>🔒 Pro AI is Locked</h2><input type="password" id="unlockInput"><button onclick="unlock()">Unlock</button><script>function unlock(){{if(document.getElementById('unlockInput').value === '{security["code"]}'){{window.location.href='/chat'}}else{{alert('Wrong code')}}}}</script></body></html>"""
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+if __name__ == '__main__':
+    app.run(debug=True)
