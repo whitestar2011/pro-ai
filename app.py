@@ -11,7 +11,7 @@ import re
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "supersecretkey")
 
-DB = 'users.db'
+DB = 'users_v2.db'
 
 # ========== DATABASE ==========
 def init_db():
