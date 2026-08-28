@@ -2,62 +2,111 @@ import os
 import random
 import sqlite3
 import bcrypt
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
+import uuid
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import re
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "supersecretkey")
+app.secret_key = os.environ.get("SECRET_KEY", "supersecretkey_pro_ai_2026")
+
+UPLOAD_FOLDER = 'static/uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'wav', 'mp3', 'webm'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 DB = 'users_v2.db'
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_greeting():
+    lagos_time = datetime.now(ZoneInfo("Africa/Lagos"))
+    hour = lagos_time.hour
+    if 5 <= hour < 12: return "Good Morning"
+    elif 12 <= hour < 18: return "Good Afternoon"
+    else: return "Good Evening"
 
 # ========== DATABASE ==========
 def init_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    # email for OTP, username for password login
     c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (id INTEGER PRIMARY KEY, 
-                 email TEXT UNIQUE, 
+                 (id INTEGER PRIMARY KEY,
+                 email TEXT UNIQUE,
                  username TEXT UNIQUE,
-                 otp TEXT, 
-                 password_hash TEXT, 
-                 is_verified INTEGER)''')
+                 otp TEXT,
+                 password_hash TEXT,
+                 is_verified INTEGER,
+                 profile_pic TEXT DEFAULT '/static/logo.png',
+                 incognito INTEGER DEFAULT 0)''') # 0 = off, 1 = on
+
+    c.execute('''CREATE TABLE IF NOT EXISTS messages
+                 (id INTEGER PRIMARY KEY,
+                 user_id INTEGER,
+                 role TEXT,
+                 type TEXT DEFAULT 'text',
+                 content TEXT,
+                 file_url TEXT,
+                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                 is_pinned INTEGER DEFAULT 0,
+                 FOREIGN KEY(user_id) REFERENCES users(id))''')
+    conn.commit()
+    conn.close()
+    delete_old_messages()
+
+def delete_old_messages():
+    cutoff = datetime.now() - timedelta(days=90)
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM messages WHERE created_at <? AND is_pinned = 0", (cutoff,))
     conn.commit()
     conn.close()
 
 init_db()
 
-# ========== EMAIL FUNCTION ==========
+def get_user_by_id(user_id):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE id=?", (user_id,))
+    user = c.fetchone()
+    conn.close()
+    return user
+
+def get_messages(user_id):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    user = get_user_by_id(user_id)
+    if user and user[7] == 1: # incognito ON = don't load history
+        messages = []
+    else:
+        c.execute("SELECT * FROM messages WHERE user_id=? ORDER BY created_at ASC", (user_id,))
+        messages = c.fetchall()
+    conn.close()
+    return messages
+
+# ========== EMAIL ==========
 def send_email(to_email, subject, code, type="login"):
     sender_email = os.environ['GMAIL_EMAIL']
     sender_password = os.environ['GMAIL_PASSWORD']
-    
     msg = MIMEMultipart("alternative")
     msg['From'] = f"Pro AI Security <{sender_email}>"
     msg['To'] = to_email
     msg['Subject'] = subject
-
-    if type == "login":
-        body = f"<h2>Pro AI Login Code</h2><p>Your code: <b style='font-size:24px; letter-spacing:5px;'>{code}</b></p><p>Expires in 10 minutes.</p>"
-    elif type == "reset":
-        body = f"<h2>Password Reset Request</h2><p>Someone requested to reset your Pro AI password.</p><p>Code: <b style='font-size:24px; letter-spacing:5px;'>{code}</b></p><p>If this wasn't you, ignore this email.</p>"
-    elif type == "security":
-        body = f"<h2>Security Alert</h2><p>Your Pro AI password was just changed.</p><p>If this wasn't you, please reset your password immediately.</p>"
-
-    html = f"<html><body style='font-family: Arial; background:#f6f9fc;'><div style='max-width: 500px; margin: 20px auto; padding: 30px; border-radius: 12px; background:white;'>{body}</div></body></html>"
+    body = f"<h2>Pro AI Code</h2><p><b style='font-size:24px;'>{code}</b></p>"
+    html = f"<html><body>{body}</body></html>"
     msg.attach(MIMEText(html, "html"))
-
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(sender_email, sender_password)
         server.sendmail(sender_email, to_email, msg.as_string())
 
-
 def detect_login_type(identifier):
-    if re.match(r"[^@]+@[^@]+\.[^@]+", identifier): return "email"
-    else: return "username"
+    return "email" if re.match(r"[^@]+@[^@]+\.[^@]+", identifier) else "username"
 
 def get_user_by_identifier(identifier, login_type):
     conn = sqlite3.connect(DB)
@@ -67,12 +116,11 @@ def get_user_by_identifier(identifier, login_type):
     conn.close()
     return user
 
-# ========== ROUTES ==========
+# ========== AUTH ROUTES ==========
 @app.route('/')
 def home():
-    if 'user' in session:
-        return render_template('dashboard.html')
-    return render_template('login.html') # 1 page for email/username
+    if 'user_id' in session: return redirect(url_for('dashboard'))
+    return render_template('login.html')
 
 @app.route('/send_login', methods=['POST'])
 def send_login():
@@ -80,16 +128,13 @@ def send_login():
     login_type = detect_login_type(identifier)
     session['identifier'] = identifier
     session['login_type'] = login_type
-    
     user = get_user_by_identifier(identifier, login_type)
-
     if login_type == "username":
-        if not user or user[4] is None: # password_hash column
-            flash("Username not found or no password set. Use email first to create account.")
+        if not user or user[4] is None:
+            flash("Username not found. Use email first to create account.")
             return redirect(url_for('home'))
-        return redirect(url_for('login_password')) # Go to password page
-    
-    else: # email
+        return redirect(url_for('login_password'))
+    else:
         code = str(random.randint(100000, 999))
         conn = sqlite3.connect(DB)
         c = conn.cursor()
@@ -99,7 +144,6 @@ def send_login():
             c.execute("UPDATE users SET otp=? WHERE email=?", (code, identifier))
         conn.commit()
         conn.close()
-        
         send_email(identifier, "Your Pro AI Login Code", code, "login")
         return redirect(url_for('verify_otp'))
 
@@ -110,7 +154,8 @@ def login_password():
         identifier = session.get('identifier')
         user = get_user_by_identifier(identifier, 'username')
         if user and user[4] and bcrypt.checkpw(password.encode('utf-8'), user[4]):
-            session['user'] = identifier
+            session['user_id'] = user[0]
+            session['user'] = user[2]
             return redirect(url_for('dashboard'))
         else:
             flash("Wrong password")
@@ -122,14 +167,13 @@ def verify_otp():
         code = request.form['otp']
         identifier = session.get('identifier')
         user = get_user_by_identifier(identifier, 'email')
-        
-        if user and code == user[3]: # otp column
+        if user and code == user[3]:
             session['otp_verified'] = True
             session['user_id'] = user[0]
-            if user[4] is None: # no password yet
+            if user[4] is None:
                 return redirect(url_for('set_password'))
             else:
-                session['user'] = identifier
+                session['user'] = user[2]
                 return redirect(url_for('dashboard'))
         else:
             flash("Wrong code")
@@ -137,15 +181,12 @@ def verify_otp():
 
 @app.route('/set_password', methods=['GET', 'POST'])
 def set_password():
-    if not session.get('otp_verified'):
-        return redirect(url_for('home'))
-    
+    if not session.get('otp_verified'): return redirect(url_for('home'))
     if request.method == 'POST':
         password = request.form['password']
-        username = request.form['username'] # Let them pick username here
+        username = request.form['username']
         user_id = session.get('user_id')
         hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        
         conn = sqlite3.connect(DB)
         c = conn.cursor()
         try:
@@ -155,17 +196,10 @@ def set_password():
             flash("Username already taken")
             return redirect(url_for('set_password'))
         conn.close()
-        
-        # SECURITY EMAIL
-        c.execute("SELECT email FROM users WHERE id=?", (user_id,))
-        email = c.fetchone()[0]
-        send_email(email, "Pro AI Security Alert", "", "security")
-            
         session['user'] = username
         return redirect(url_for('dashboard'))
     return render_template('set_password.html')
 
-# ========== FORGOT PASSWORD ==========
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
@@ -195,18 +229,106 @@ def reset_password():
             c.execute("UPDATE users SET password_hash=? WHERE email=?", (hashed, email))
             conn.commit()
             conn.close()
-            send_email(email, "Pro AI Security Alert", "", "security") # alert
             flash("Password reset successful")
             return redirect(url_for('home'))
         else:
             flash("Invalid code")
     return render_template('reset_password.html')
 
-@app.route('/dashboard')
+# ========== DASHBOARD + CHAT ==========
+@app.route('/dashboard', methods=['GET'])
 def dashboard():
-    if 'user' not in session:
-        return redirect(url_for('home'))
-    return render_template('dashboard.html', user=session['user'])
+    if 'user_id' not in session: return redirect(url_for('home'))
+    user = get_user_by_id(session['user_id'])
+    messages = get_messages(session['user_id'])
+    greeting = get_greeting()
+    return render_template('dashboard.html', user=user, messages=messages, greeting=greeting)
+
+@app.route('/api/upload', methods=['POST'])
+def api_upload():
+    if 'user_id' not in session: return jsonify({"error": "not logged in"}), 401
+    user_id = session['user_id']
+    user = get_user_by_id(user_id)
+
+    msg_type = request.form.get('type', 'text')
+    content = request.form.get('content', '')
+    file_url = None
+
+    if 'file' in request.files:
+        file = request.files['file']
+        if file and allowed_file(file.filename):
+            ext = file.filename.rsplit('.', 1)[1].lower()
+            filename = f"{user_id}_{uuid.uuid4()}.{ext}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            file_url = f"/static/uploads/{filename}"
+
+    ai_reply = "Got it!"
+    if msg_type == 'image': ai_reply = "Got your image! What should I do with it?"
+    elif msg_type == 'voice': ai_reply = "I heard your voice note."
+    else: ai_reply = f"You said: {content}. I'm Pro-ai and I'm here to help!"
+
+    if user[7] == 0: # Only save if incognito is OFF
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        c.execute("INSERT INTO messages (user_id, role, type, content, file_url) VALUES (?,?,?,?,?)",
+                  (user_id, 'user', msg_type, content, file_url))
+        c.execute("INSERT INTO messages (user_id, role, type, content) VALUES (?,?,?,?)",
+                  (user_id, 'ai', 'text', ai_reply))
+        conn.commit()
+        conn.close()
+
+    return jsonify({"success": True, "reply": ai_reply})
+
+@app.route('/pin/<int:msg_id>')
+def pin_message(msg_id):
+    if 'user_id' not in session: return redirect(url_for('home'))
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("UPDATE messages SET is_pinned = 1 WHERE id=? AND user_id=?", (msg_id, session['user_id']))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('dashboard'))
+
+# ========== SETTINGS ==========
+@app.route('/edit-profile', methods=['GET', 'POST'])
+def edit_profile():
+    if 'user_id' not in session: return redirect(url_for('home'))
+    user = get_user_by_id(session['user_id'])
+    if request.method == 'POST':
+        if 'profile_pic' in request.files:
+            file = request.files['profile_pic']
+            if file and allowed_file(file.filename):
+                filename = secure_filename(f"user_{user[0]}.png")
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                conn = sqlite3.connect(DB)
+                c = conn.cursor()
+                c.execute("UPDATE users SET profile_pic=? WHERE id=?", (f"/static/uploads/{filename}", user[0]))
+                conn.commit()
+                conn.close()
+                flash("Profile picture updated!")
+        return redirect(url_for('dashboard'))
+    return render_template('edit_profile.html', user=user)
+
+@app.route('/security-settings')
+def security_settings():
+    if 'user_id' not in session: return redirect(url_for('home'))
+    user = get_user_by_id(session['user_id'])
+    return render_template('security.html', user=user)
+
+@app.route('/toggle-incognito')
+def toggle_incognito():
+    if 'user_id' not in session: return redirect(url_for('home'))
+    user = get_user_by_id(session['user_id'])
+    new_state = 0 if user[7] == 1 else 1
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("UPDATE users SET incognito=? WHERE id=?", (new_state, session['user_id']))
+    conn.commit()
+    conn.close()
+    flash("Incognito Mode: " + ("ON - Chats won't be saved" if new_state else "OFF"))
+    return redirect(url_for('dashboard'))
 
 @app.route('/logout')
 def logout():
@@ -218,4 +340,5 @@ def static_files(filename):
     return send_from_directory('static', filename)
 
 if __name__ == '__main__':
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     app.run(debug=True)
