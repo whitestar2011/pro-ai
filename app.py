@@ -6,6 +6,14 @@ import smtplib
 from email.mime.text import MIMEText
 from flask import Flask, request, jsonify, session, send_from_directory
 from gtts import gTTS
+import traceback
+
+@app.route('/')
+def index():
+    try:
+        return "<h1>Pro-ai is running!</h1>"
+    except Exception as e:
+        return f"ERROR: {e}\n{traceback.format_exc()}"
 import google.generativeai as genai
 
 app = Flask(__name__)
