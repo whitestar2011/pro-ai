@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Edit Profile - Pro-ai</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { background:#0a0a0a; color:#fff; font-family:Arial; margin:0; padding:20px; }
+.container { max-width:500px; margin:40px auto; background:#111; padding:30px; border-radius:12px; border:1px solid #333; }
+  h1 { color:#FFD700; text-align:center; margin-bottom:30px; }
+.profile-pic { display:flex; flex-direction:column; align-items:center; gap:15px; margin-bottom:30px; }
+.profile-pic img { width:100px; height:100px; border-radius:50%; border:3px solid #FFD700; object-fit:cover; }
+.form-group { margin-bottom:20px; }
+.form-group label { display:block; margin-bottom:8px; color:#FFD700; font-weight:bold; }
+.form-group input[type="file"],.form-group input[type="text"] { background:#222; padding:12px; border-radius:8px; width:100%; color:#fff; border:1px solid #333; box-sizing:border-box; }
+.btn { background:#FFD700; color:#000; border:none; padding:12px 20px; border-radius:8px; font-weight:bold; cursor:pointer; width:100%; font-size:16px; margin-top:10px; }
+.btn:hover { background:#e6c200; }
+.btn.secondary { background:#333; color:#FFD700; }
+.back { display:block; text-align:center; margin-top:20px; color:#FFD700; text-decoration:none; }
+.flash { background:#333; padding:10px; border-radius:5px; margin-bottom:15px; text-align:center; }
+.divider { height:1px; background:#333; margin:25px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Edit Profile</h1>
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash">{{ messages[0] }}</div>
+          {% endif %}
+        {% endwith %}
+
+        <div class="profile-pic">
+            <img src="{{ user[6] }}" alt="Profile Picture">
+            <p>@{{ user[2] }}</p>
+        </div>
+
+        <form method="POST" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Change Username</label>
+                <input type="text" name="username" value="{{ user[2] }}" required>
+            </div>
+
+            <div class="form-group">
+                <label>Change Profile Picture</label>
+                <input type="file" name="profile_pic" accept="image/*">
+            </div>
+            <button type="submit" class="btn">Save Changes</button>
+        </form>
+
+        <div class="divider"></div>
+
+        <a href="/forgot_password" class="btn secondary">Change Password</a>
+
+        <a href="/dashboard" class="back">← Back to Chat</a>
+    </div>
+</body>
+</html>
