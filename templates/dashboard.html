@@ -11,9 +11,9 @@
 .menu-btn { background:none; border:none; color:#FFD700; cursor:pointer; padding:5px; }
 .menu-btn svg { width:24px; height:24px; fill:#FFD700; }
 .dropdown { display:none; position:absolute; right:0; top:35px; background:#222; border:1px solid #333; border-radius:8px; min-width:160px; z-index:10; }
+.menu:hover.dropdown { display:block; }
 .dropdown a { display:block; padding:12px 15px; color:#fff; text-decoration:none; }
 .dropdown a:hover { background:#333; }
-.menu:hover.dropdown { display:block; }
 .welcome { text-align:center; padding:20px 10px; }
 .welcome h1 { color:#FFD700; margin:0; font-size:24px; }
 .chat-container { max-width:800px; margin:10px auto; padding:10px; height:55vh; overflow-y:auto; }
@@ -49,7 +49,7 @@
         </div>
         <div class="menu">
             <button class="menu-btn">
-                <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2-2 2-2 2 2zm0 2c-1.1 0-2.9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2.9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2.9-2 2.9 2 2 2zm0 2c-1.1 0-2.9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2.9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
             </button>
             <div class="dropdown">
                 <a href="/edit-profile">Edit Profile</a>
@@ -76,7 +76,7 @@
 
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
                                 <div class="timestamp" data-time="{{ msg[6] }}"></div>
-                                <span class="seen">✓</span>
+                                <span class="seen">✓✓</span>
                             </div>
 
                             {% if msg[7] == 0 %}<a href="/pin/{{ msg[0] }}" class="pin">
@@ -92,6 +92,7 @@
                     <div class="bubble-wrap">
                         <div class="bubble">
                             {{ msg[4] }}
+                            {% if msg[5] %}<audio autoplay controls src="{{ msg[5] }}" style="width:200px; margin-top:5px; display:block;"></audio>{% endif %}
                             <div class="timestamp" data-time="{{ msg[6] }}" style="text-align:right; margin-top:4px;"></div>
                         </div>
                     </div>
@@ -107,7 +108,7 @@
         </div>
         <div class="input-bar">
             <button class="icon-btn" id="emojiBtn">
-                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 5c1.1 0 2.9 2 2s-.9 2-2 2-2-.9-2-2.9-2 2-2zm6 9c-2.33-2.33-6.33-2.33-8.66 0.19.81.89 1.34 1.34 1.34h5c.77 0 1.47-.53 1.66-1.34zM16 9c1.1 0 2.9 2 2s-.9 2-2 2-2-.9-2-2.9-2 2-2z"/></svg>
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 5c1.1 0 2.9 2 2s-.9 2-2 2-2-.9-2-2.9-2 2-2zm6 9c-2.33-1.33-6.33-1.33-8.66 0.19.81.89 1.34 1.34 1.34h5c.77 0 1.47-.53 1.66-1.34zM16 9c1.1 0 2.9 2 2s-.9 2-2 2-2-.9-2-2.9-2 2-2z"/></svg>
             </button>
             <input type="file" id="imageUpload" accept="image/*" style="display:none;">
             <button class="icon-btn" id="imageBtn">
@@ -137,7 +138,7 @@ document.querySelectorAll('.timestamp').forEach(el => {
     }
 });
 
-// SEND WITH 30S TIMEOUT
+// SEND WITH 30S TIMEOUT + TTS PLAY
 function sendMessage(type, content, file=null){
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -152,14 +153,19 @@ function sendMessage(type, content, file=null){
         body:formData,
         signal: controller.signal
     })
-  .then(res => res.json())
-  .then(() => location.reload())
-  .catch(err => {
+ .then(res => res.json())
+ .then(data => {
+        if(data.tts_url){
+            new Audio(data.tts_url).play(); // Auto play TTS immediately
+        }
+        location.reload()
+    })
+ .catch(err => {
         if(err.name === 'AbortError'){
             alert("⚠️ No network connection. Request timed out after 30 seconds.");
         }
     })
-  .finally(() => clearTimeout(timeoutId));
+ .finally(() => clearTimeout(timeoutId));
 }
 
 document.getElementById('sendBtn').onclick = () => {
