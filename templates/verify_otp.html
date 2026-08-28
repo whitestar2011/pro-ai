@@ -1,16 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Verify Code</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
+<html><head><meta charset="UTF-8"><title>Verify Code</title><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="display:flex; justify-content:center; align-items:center; height:100vh; background:#111; margin:0; font-family:Arial;">
   <form action="/verify_otp" method="POST" style="background:#000; padding:40px; border:2px solid #FFD700; border-radius:16px; text-align:center;">
     <h2 style="color:#FFD700;">Check Your Email</h2>
-    <p style="color:#ccc;">We sent a 6-digit code to your email</p>
+    <p style="color:#ccc;">We sent a 6-digit code to {{ session.identifier }}</p>
     <input type="text" name="otp" placeholder="123456" maxlength="6" required style="padding:12px; width:280px; border-radius:8px; border:1px solid #FFD700; background:#222; color:white; text-align:center; letter-spacing:5px; font-size:20px;"><br><br>
     <button type="submit" style="padding:12px 30px; background:#FFD700; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Verify</button>
   </form>
-</body>
-</html>
+</body></html>
