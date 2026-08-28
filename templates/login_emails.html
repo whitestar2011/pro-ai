@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pro AI Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="display:flex; justify-content:center; align-items:center; height:100vh; background:#111; margin:0; font-family:Arial;">
+  <form action="/send_otp" method="POST" style="background:#000; padding:40px; border:2px solid #FFD700; border-radius:16px; text-align:center;">
+    <img src="/static/logo.svg" height="60" style="margin-bottom:20px;"><br>
+    <h2 style="color:#FFD700;">Welcome to Pro AI</h2>
+    <p style="color:#ccc;">Enter your email to get a login code</p>
+    <input type="email" name="email" placeholder="your@email.com" required style="padding:12px; width:280px; border-radius:8px; border:1px solid #FFD700; background:#222; color:white;"><br><br>
+    <button type="submit" style="padding:12px 30px; background:#FFD700; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Send Code</button>
+  </form>
+</body>
+</html>
