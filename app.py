@@ -3,6 +3,7 @@ import random
 import sqlite3
 import bcrypt
 import uuid
+import requests
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify
@@ -44,7 +45,7 @@ def init_db():
                  password_hash TEXT,
                  is_verified INTEGER,
                  profile_pic TEXT DEFAULT '/static/logo.png',
-                 incognito INTEGER DEFAULT 0)''') # 0 = off, 1 = on
+                 incognito INTEGER DEFAULT 0)''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS messages
                  (id INTEGER PRIMARY KEY,
@@ -263,10 +264,14 @@ def api_upload():
             file.save(filepath)
             file_url = f"/static/uploads/{filename}"
 
-    ai_reply = "Got it!"
-    if msg_type == 'image': ai_reply = "Got your image! What should I do with it?"
-    elif msg_type == 'voice': ai_reply = "I heard your voice note."
-    else: ai_reply = f"You said: {content}. I'm Pro-ai and I'm here to help!"
+    # AI REPLY WITH 30S TIMEOUT
+    try:
+        ai_reply = f"You said: {content}. I'm Pro-ai and I'm here to help!"
+        if msg_type == 'image': ai_reply = "Got your image! What should I do with it?"
+        elif msg_type == 'voice': ai_reply = "I heard your voice note."
+
+    except requests.exceptions.Timeout:
+        ai_reply = "⚠️ No network connection. Please check your internet and try again."
 
     if user[7] == 0: # Only save if incognito is OFF
         conn = sqlite3.connect(DB)
@@ -296,9 +301,22 @@ def edit_profile():
     if 'user_id' not in session: return redirect(url_for('home'))
     user = get_user_by_id(session['user_id'])
     if request.method == 'POST':
+        new_username = request.form.get('username')
+        if new_username and new_username!= user[2]:
+            conn = sqlite3.connect(DB)
+            c = conn.cursor()
+            try:
+                c.execute("UPDATE users SET username=? WHERE id=?", (new_username, user[0]))
+                conn.commit()
+                session['user'] = new_username
+                flash("Username updated!")
+            except sqlite3.IntegrityError:
+                flash("Username already taken")
+            conn.close()
+
         if 'profile_pic' in request.files:
             file = request.files['profile_pic']
-            if file and allowed_file(file.filename):
+            if file and file.filename!= '' and allowed_file(file.filename):
                 filename = secure_filename(f"user_{user[0]}.png")
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(filepath)
@@ -308,7 +326,7 @@ def edit_profile():
                 conn.commit()
                 conn.close()
                 flash("Profile picture updated!")
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('edit_profile'))
     return render_template('edit_profile.html', user=user)
 
 @app.route('/security-settings')
