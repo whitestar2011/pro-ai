@@ -4,29 +4,196 @@
     <title>Pro-ai Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { background:#0a0a0a; color:#fff; font-family:Arial; margin:0; }
-        .navbar { background:#111; padding:15px; display:flex; align-items:center; border-bottom:1px solid #333; }
-        .navbar a { color:#FFD700; margin-left:auto; text-decoration:none; }
-        .chat-container { max-width:800px; margin:20px auto; padding:10px; }
-        input, button { padding:10px; border-radius:5px; border:none; }
-        input { width:75%; background:#222; color:#fff; }
-        button { background:#FFD700; color:#000; font-weight:bold; cursor:pointer; }
+        body { background:#0a0a0a; color:#fff; font-family:Arial; margin:0; padding-bottom:80px; }
+ .navbar { background:#111; padding:15px 20px; display:flex; align-items:center; border-bottom:1px solid #333; position:sticky; top:0; z-index:100; }
+ .logo { display:flex; align-items:center; gap:10px; }
+ .menu { margin-left:auto; position:relative; }
+ .menu-btn { background:none; border:none; color:#FFD700; cursor:pointer; padding:5px; }
+ .menu-btn svg { width:24px; height:24px; fill:#FFD700; }
+ .dropdown { display:none; position:absolute; right:0; top:35px; background:#222; border:1px solid #333; border-radius:8px; min-width:160px; z-index:10; }
+ .dropdown a { display:block; padding:12px 15px; color:#fff; text-decoration:none; }
+ .dropdown a:hover { background:#333; }
+ .menu:hover.dropdown { display:block; }
+ .welcome { text-align:center; padding:20px 10px; }
+ .welcome h1 { color:#FFD700; margin:0; font-size:24px; }
+ .chat-container { max-width:800px; margin:10px auto; padding:10px; height:55vh; overflow-y:auto; }
+ .message { display:flex; align-items:flex-start; gap:10px; margin:15px 0; }
+ .message.user { justify-content:flex-end; }
+ .avatar { height:32px; width:32px; border-radius:50%; flex-shrink:0; object-fit:cover; }
+ .user-avatar { border:2px solid #FFD700; }
+ .ai-avatar { border:1px solid #333; }
+ .bubble-wrap { display:flex; flex-direction:column; max-width:70%; }
+ .bubble { background:#222; padding:12px 16px; border-radius:18px; position:relative; word-wrap:break-word; }
+ .message.user.bubble { background:#FFD700; color:#000; }
+ .timestamp { font-size:10px; color:#888; margin-top:4px; text-align:right; }
+ .message.user.timestamp { text-align:left; }
+ .pin { position:absolute; top:5px; right:5px; text-decoration:none; font-size:14px; cursor:pointer; }
+ .pin svg { width:14px; height:14px; fill:#FFD700; }
+ .input-wrapper { position:fixed; bottom:0; width:100%; background:#111; padding:10px; border-top:1px solid #333; left:0; }
+ .input-bar { max-width:800px; margin:0 auto; display:flex; gap:8px; align-items:center; }
+ .input-bar input { flex:1; background:#222; color:#fff; padding:12px 16px; border-radius:20px; border:none; outline:none; }
+ .icon-btn { background:#333; border:none; color:#FFD700; padding:10px 12px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+ .icon-btn svg { width:20px; height:20px; fill:#FFD700; }
+ .icon-btn.recording { background:red; animation: pulse 1s infinite; }
+   @keyframes pulse { 0%{transform:scale(1)} 50%{transform:scale(1.1)} 100%{transform:scale(1)} }
+ .emoji-picker { display:none; position:absolute; bottom:70px; left:10px; background:#222; padding:10px; border-radius:10px; width:280px; flex-wrap:wrap; gap:8px; z-index:200; }
+ .emoji-picker span { font-size:24px; cursor:pointer; }
+ .emoji-picker span:hover { transform:scale(1.2); }
     </style>
 </head>
 <body>
     <div class="navbar">
-        <img src="/static/logo.png" height="40" style="margin-right:10px;">
-        <span style="font-weight:bold; color:#FFD700;">Pro-ai</span>
-        <a href="/logout">Logout</a>
+        <div class="logo">
+            <img src="/static/logo.png" height="40">
+            <span style="font-weight:bold; font-size:20px; color:#FFD700;">Pro-ai</span>
+        </div>
+        <div class="menu">
+            <button class="menu-btn">
+                <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2.9-2 2.9 2 2 2zm0 2c-1.1 0-2.9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2.9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+            </button>
+            <div class="dropdown">
+                <a href="/edit-profile">Edit Profile</a>
+                <a href="/security-settings">Security Settings</a>
+                <a href="/toggle-incognito">Incognito Mode</a>
+                <a href="/logout">Logout</a>
+            </div>
+        </div>
     </div>
 
-    <div class="chat-container">
-        {{ chat_history | safe }}
-
-        <form method="POST" style="margin-top:20px;">
-            <input name="prompt" placeholder="Ask Pro-ai anything..." required>
-            <button type="submit">Send</button>
-        </form>
+    <div class="welcome">
+        <h1>{{ greeting }}, {{ user[2] }}! 👋</h1>
     </div>
+
+    <div class="chat-container" id="chatBox">
+        {% for msg in messages %}
+            <div class="message {{ msg[2] }}">
+                {% if msg[2] == 'user' %}
+                    <div class="bubble-wrap">
+                        <div class="bubble">
+                            {% if msg[3] == 'image' %}<img src="{{ msg[5] }}" style="max-width:200px; border-radius:10px; display:block; margin-bottom:5px;">{% endif %}
+                            {% if msg[3] == 'voice' %}<audio controls src="{{ msg[5] }}" style="width:200px;"></audio>{% endif %}
+                            {{ msg[4] }}
+                            {% if msg[7] == 0 %}<a href="/pin/{{ msg[0] }}" class="pin">
+                                <svg viewBox="0 0 24 24"><path d="M16 9V4l-4 1V9l-4 2v7h2v4h4v-4h2V11l-4-2z"/></svg>
+                            </a>{% else %}<span class="pin">
+                                <svg viewBox="0 0 24 24"><path d="M16 9V4l-4 1V9l-4 2v7h2v4h4v-4h2V11l-4-2z"/></svg>
+                            </span>{% endif %}
+                        </div>
+                        <div class="timestamp" data-time="{{ msg[6] }}"></div>
+                    </div>
+                    <img src="{{ user[6] }}" class="avatar user-avatar">
+                {% else %}
+                    <img src="/static/logo.png" class="avatar ai-avatar">
+                    <div class="bubble-wrap">
+                        <div class="bubble">{{ msg[4] }}</div>
+                        <div class="timestamp" data-time="{{ msg[6] }}"></div>
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="input-wrapper">
+        <div class="emoji-picker" id="emojiPicker">
+            <span>😂</span><span>😍</span><span>🔥</span><span>👑</span><span>💯</span>
+            <span>🙏</span><span>❤️</span><span>😭</span><span>✨</span><span>🚀</span>
+        </div>
+        <div class="input-bar">
+            <button class="icon-btn" id="emojiBtn">
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 5c1.1 0 2.9 2 2s-.9 2-2 2-2-.9-2-2.9-2 2-2zm6 9c-2.33-2.33-6.33-2.33-8.66 0.19.81.89 1.34 1.66 1.34h5c.77 0 1.47-.53 1.66-1.34zM16 9c1.1 0 2.9 2 2s-.9 2-2 2-2-.9-2-2.9-2 2-2z"/></svg>
+            </button>
+            <input type="file" id="imageUpload" accept="image/*" style="display:none;">
+            <button class="icon-btn" id="imageBtn">
+                <svg viewBox="0 0 24 24"><path d="M9 2L7.17 4H4c-1.1 0-2.9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
+            </button>
+            <input id="textInput" placeholder="Ask Pro-ai anything...">
+            <button class="icon-btn" id="voiceBtn">
+                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
+            </button>
+            <button class="icon-btn" id="sendBtn">
+                <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+        </div>
+    </div>
+
+<script>
+const chatBox = document.getElementById('chatBox');
+chatBox.scrollTop = chatBox.scrollHeight;
+let mediaRecorder; let audioChunks = [];
+
+// FORMAT TIMESTAMP TO 12HR AM/PM
+document.querySelectorAll('.timestamp').forEach(el => {
+    const timeStr = el.getAttribute('data-time');
+    if(timeStr){
+        const date = new Date(timeStr + 'Z');
+        el.innerText = date.toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit', hour12: true});
+    }
+});
+
+// JS SAME AS BEFORE
+function sendMessage(type, content, file=null){
+    const formData = new FormData();
+    formData.append('type', type);
+    formData.append('content', content);
+    if(file) formData.append('file', file);
+    fetch('/api/upload', {method:'POST', body:formData}).then(() => location.reload());
+}
+
+document.getElementById('sendBtn').onclick = () => {
+    const text = document.getElementById('textInput').value.trim();
+    if(text){ sendMessage('text', text); document.getElementById('textInput').value=''; }
+}
+document.getElementById('textInput').onkeypress = (e) => {
+    if(e.key==='Enter') {
+        const text = e.target.value.trim();
+        if(text){ sendMessage('text', text); e.target.value='';}
+    }
+}
+
+document.getElementById('imageBtn').onclick = () => document.getElementById('imageUpload').click();
+document.getElementById('imageUpload').onchange = (e) => {
+    if(e.target.files[0]) sendMessage('image', '', e.target.files[0]);
+}
+
+document.getElementById('voiceBtn').onmousedown = async () => {
+    document.getElementById('voiceBtn').classList.add('recording');
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, {type:'audio/webm'});
+        sendMessage('voice', '', audioBlob);
+        audioChunks = [];
+    }
+    mediaRecorder.start();
+}
+document.getElementById('voiceBtn').onmouseup = () => {
+    document.getElementById('voiceBtn').classList.remove('recording');
+    if(mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+}
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if(SpeechRecognition){
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.onresult = (event) => {
+        const transcript = event.results[event.results.length-1][0].transcript.toLowerCase();
+        if(transcript.includes('hey pro ai')){
+            speechSynthesis.speak(new SpeechSynthesisUtterance("Yes I'm listening"));
+        }
+    }
+    recognition.start();
+}
+
+document.getElementById('emojiBtn').onclick = () => {
+    const picker = document.getElementById('emojiPicker');
+    picker.style.display = picker.style.display === 'flex'? 'none' : 'flex';
+}
+document.getElementById('emojiPicker').onclick = (e) => {
+    if(e.target.tagName==='SPAN'){
+        document.getElementById('textInput').value += e.target.innerText;
+    }
+}
+</script>
 </body>
-</html>
+    </html>
